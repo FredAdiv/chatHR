@@ -213,6 +213,30 @@ def test_openrouter_timeout_configured():
     assert provider._timeout == 45
 
 
+def test_factory_creates_openrouter_provider_with_valid_key():
+    """factory returns OpenRouterProvider when LLM_PROVIDER=openrouter and key is set."""
+    from app.services.llm_gateway.openrouter_provider import OpenRouterProvider
+    with patch("app.services.llm_gateway.factory.settings") as mock_settings:
+        mock_settings.llm_provider = "openrouter"
+        mock_settings.openrouter_api_key = "sk-or-real-key-abc123"
+        mock_settings.llm_request_timeout_seconds = 30
+        from app.services.llm_gateway.factory import get_llm_provider
+        provider = get_llm_provider()
+    assert isinstance(provider, OpenRouterProvider)
+    assert provider.provider_name == "openrouter"
+
+
+def test_factory_rejects_envfile_placeholder_key():
+    """factory must reject the .env.example placeholder, not just CHANGE_ME."""
+    with patch("app.services.llm_gateway.factory.settings") as mock_settings:
+        mock_settings.llm_provider = "openrouter"
+        mock_settings.openrouter_api_key = "REPLACE_WITH_REAL_KEY_FOR_OPENROUTER"
+        mock_settings.llm_request_timeout_seconds = 30
+        from app.services.llm_gateway.factory import get_llm_provider
+        with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+            get_llm_provider()
+
+
 @pytest.mark.asyncio
 async def test_openrouter_http_call_is_mockable():
     """OpenRouter HTTP calls can be injected — no real network needed."""
@@ -275,3 +299,34 @@ async def test_openrouter_prompt_not_in_error_on_timeout():
         await provider.generate([LLMMessage(role="user", content=secret)], "model", "chat")
 
     assert secret not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_gateway_full_flow_with_openrouter():
+    """End-to-end: gateway privacy check → OpenRouter HTTP mock → LLMResponse."""
+    from app.services.llm_gateway.openrouter_provider import OpenRouterProvider
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {
+        "model": "openai/gpt-oss-120b:free",
+        "choices": [{"message": {"content": "על פי תקשי\"ר, הוראות אלה חלות על כלל עובדי המדינה."}}],
+        "usage": {"prompt_tokens": 150, "completion_tokens": 30},
+    }
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+
+    provider = OpenRouterProvider(api_key="sk-test", http_client=mock_client)
+    messages = [LLMMessage(role="user", content="על מי חלות הוראות התקשי\"ר?")]
+
+    with patch("app.services.llm_gateway.gateway.get_llm_provider", return_value=provider), \
+         patch("app.services.llm_gateway.gateway.settings") as mock_settings:
+        mock_settings.default_chat_model = "openai/gpt-oss-120b:free"
+        mock_settings.fallback_chat_model = "openai/gpt-oss-20b:free"
+        resp = await generate_with_gateway(messages, "chat", db=None)
+
+    assert "תקשי" in resp.content
+    assert resp.provider == "openrouter"
+    assert resp.input_token_count == 150
+    assert resp.output_token_count == 30

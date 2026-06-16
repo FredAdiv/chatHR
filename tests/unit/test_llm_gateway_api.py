@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "apps", "
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from app.api.deps import get_current_active_user
 from app.db.session import get_db
 from app.main import app
+from app.services.llm_gateway.fake_provider import FakeLocalLLMProvider
 
 
 def _user_with_roles(*role_names):
@@ -123,11 +124,13 @@ async def test_test_generate_safe_message_returns_200():
     app.dependency_overrides[get_current_active_user] = _auth(["system_admin"])
     app.dependency_overrides[get_db] = _db_noop()
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.post("/admin/llm-gateway/test-generate", json={
-                "message": "What is the annual leave policy for civil servants?",
-                "purpose": "debug",
-            })
+        with patch("app.services.llm_gateway.gateway.get_llm_provider",
+                   return_value=FakeLocalLLMProvider()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post("/admin/llm-gateway/test-generate", json={
+                    "message": "What is the annual leave policy for civil servants?",
+                    "purpose": "debug",
+                })
         assert r.status_code == 200
         data = r.json()
         assert "content" in data

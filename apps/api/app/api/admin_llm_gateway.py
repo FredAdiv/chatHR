@@ -65,8 +65,9 @@ async def gateway_health(
     Reports whether OpenRouter is configured (boolean only — key is never returned).
     No DB query performed.
     """
+    _PLACEHOLDER_KEYS = {"CHANGE_ME", "REPLACE_WITH_REAL_KEY_FOR_OPENROUTER"}
     openrouter_configured = bool(
-        settings.openrouter_api_key and settings.openrouter_api_key != "CHANGE_ME"
+        settings.openrouter_api_key and settings.openrouter_api_key not in _PLACEHOLDER_KEYS
     )
     return HealthResponse(
         provider_configured=settings.llm_provider,

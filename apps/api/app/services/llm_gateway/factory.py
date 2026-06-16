@@ -25,7 +25,8 @@ def get_llm_provider() -> LLMProvider:
     if provider_name == "openrouter":
         from app.services.llm_gateway.openrouter_provider import OpenRouterProvider
         api_key = settings.openrouter_api_key
-        if not api_key or api_key == "CHANGE_ME":
+        _PLACEHOLDER_KEYS = {"CHANGE_ME", "REPLACE_WITH_REAL_KEY_FOR_OPENROUTER"}
+        if not api_key or api_key in _PLACEHOLDER_KEYS:
             raise ValueError(
                 "LLM_PROVIDER=openrouter requires OPENROUTER_API_KEY to be set in the environment"
             )
