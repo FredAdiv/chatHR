@@ -10,6 +10,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
+    # MinIO object storage
+    minio_endpoint: str = "minio:9000"
+    minio_access_key: str = "CHANGE_ME"
+    minio_secret_key: str = "CHANGE_ME"
+    minio_bucket_documents: str = "chathr-documents"
+    minio_secure: bool = False
+
     @property
     def async_database_url(self) -> str:
         return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)

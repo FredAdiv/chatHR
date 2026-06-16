@@ -209,6 +209,34 @@ User → Next.js → FastAPI (auth + RBAC check)
 - authority_level query filter on GET /admin/knowledge-sources validated 1-5 at API level
 - `knowledge_admin` and `system_admin` only — all checks server-side
 
-### Phase 6 — Pending
+### Phase 6 — Ingestion Foundation ✅
 
-Chat endpoint, streaming, FAQ management UI, RAG pipeline (crawling, embeddings, vector search), LLM Gateway, privacy guard, SSO.
+| Component | Status |
+|---|---|
+| `SourceDocument` model + migration | ✅ Done |
+| `IngestionRun` model + migration | ✅ Done |
+| `IngestionRunDocument` model + migration | ✅ Done |
+| URL validation helper (rejects private IPs, non-http/https) | ✅ Done |
+| SHA-256 content hash helper (change detection) | ✅ Done |
+| Document type detection (html/pdf/docx/xlsx/unknown) | ✅ Done |
+| MinIO storage helper (`ensure_bucket_exists`, `put_bytes`) | ✅ Done |
+| Safe HTTP fetch skeleton (20 MB limit, 5 redirects, 30s timeout) | ✅ Done |
+| Ingestion orchestration: `run_ingestion_for_source` | ✅ Done |
+| Modes: `dry_run`, `metadata_only`, `download` | ✅ Done |
+| POST /admin/ingestion/runs — start run synchronously | ✅ Done |
+| GET /admin/ingestion/runs — list with filters | ✅ Done |
+| GET /admin/ingestion/runs/{id} — run with document details | ✅ Done |
+| GET /admin/ingestion/source-documents — list with filters | ✅ Done |
+| Unit tests: 52 new tests (helpers + orchestrator + API) | ✅ Done |
+| docs/ingestion.md | ✅ Done |
+
+**Constraints:**
+- MVP processes only the knowledge source's root URL — no recursive crawling
+- Raw document bytes stored only in MinIO, never in DB or audit logs
+- No document text parsing, chunking, or embeddings
+- Private/internal IP addresses blocked at URL validation layer
+- All authorization server-side (knowledge_admin and system_admin only)
+
+### Phase 7 — Pending
+
+Chat endpoint, streaming, FAQ management UI, document text parsing/chunking, embeddings, pgvector index build, RAG retrieval, LLM Gateway, privacy guard, SSO.
