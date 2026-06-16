@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
@@ -17,12 +18,14 @@ router = APIRouter(prefix="/admin/faq", tags=["faq"])
 
 _FAQ_ROLES = [RoleName.FAQ_MANAGER, RoleName.SYSTEM_ADMIN]
 
+ContextType = Literal["government_ministries", "defense_system", "health_system"]
+
 
 class FaqCreate(BaseModel):
     question: str
     answer: str
     topic: str | None = None
-    context_type: str | None = None
+    context_type: ContextType | None = None
     applicable_population: str | None = None
     official_source_links: list[str] = []
 
@@ -38,7 +41,7 @@ class FaqUpdate(BaseModel):
     question: str | None = None
     answer: str | None = None
     topic: str | None = None
-    context_type: str | None = None
+    context_type: ContextType | None = None
     applicable_population: str | None = None
     official_source_links: list[str] | None = None
 
@@ -48,6 +51,22 @@ class FaqUpdate(BaseModel):
         if v is not None and not v.strip():
             raise ValueError("must not be empty")
         return v
+
+
+class FaqResponse(BaseModel):
+    id: str
+    question: str
+    answer: str
+    topic: str | None
+    context_type: str | None
+    applicable_population: str | None
+    official_source_links: list
+    status: str
+    approved_by_user_id: str | None
+    approved_at: str | None
+    content_version: int
+    created_at: str | None
+    updated_at: str | None
 
 
 _CONTENT_FIELDS = {"question", "answer", "topic", "context_type", "applicable_population", "official_source_links"}
@@ -71,10 +90,10 @@ def _faq_dict(item: FaqItem) -> dict:
     }
 
 
-@router.get("")
+@router.get("", response_model=list[FaqResponse])
 async def list_faq(
     status: str | None = Query(default=None),
-    context_type: str | None = Query(default=None),
+    context_type: ContextType | None = Query(default=None),
     topic: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     _actor: User = Depends(require_any_role(_FAQ_ROLES)),
@@ -90,7 +109,7 @@ async def list_faq(
     return [_faq_dict(item) for item in result.scalars().all()]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=FaqResponse)
 async def create_faq(
     req: FaqCreate,
     db: AsyncSession = Depends(get_db),
@@ -98,6 +117,7 @@ async def create_faq(
 ):
     now = datetime.now(timezone.utc)
     item = FaqItem(
+        id=uuid.uuid4(),
         question=req.question,
         answer=req.answer,
         topic=req.topic,
@@ -105,6 +125,7 @@ async def create_faq(
         applicable_population=req.applicable_population,
         official_source_links=req.official_source_links,
         status="draft",
+        content_version=1,
         created_at=now,
         updated_at=now,
     )
@@ -122,7 +143,7 @@ async def create_faq(
     return _faq_dict(item)
 
 
-@router.patch("/{faq_id}")
+@router.patch("/{faq_id}", response_model=FaqResponse)
 async def update_faq(
     faq_id: uuid.UUID,
     req: FaqUpdate,
@@ -160,7 +181,7 @@ async def update_faq(
     return _faq_dict(item)
 
 
-@router.patch("/{faq_id}/approve")
+@router.patch("/{faq_id}/approve", response_model=FaqResponse)
 async def approve_faq(
     faq_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -169,6 +190,8 @@ async def approve_faq(
     item = await db.get(FaqItem, faq_id)
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ item not found")
+    if item.status == "archived":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archived FAQ items cannot be approved")
 
     now = datetime.now(timezone.utc)
     item.status = "approved"
@@ -183,7 +206,7 @@ async def approve_faq(
     return _faq_dict(item)
 
 
-@router.patch("/{faq_id}/archive")
+@router.patch("/{faq_id}/archive", response_model=FaqResponse)
 async def archive_faq(
     faq_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

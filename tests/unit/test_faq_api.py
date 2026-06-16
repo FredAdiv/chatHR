@@ -257,3 +257,121 @@ async def test_update_archived_faq_returns_422():
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
+
+
+# ── context_type validation (Fix 1) ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_create_faq_invalid_context_type_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["faq_manager"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/admin/faq", json={"question": "Q?", "answer": "A.", "context_type": "bad_context"})
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_update_faq_invalid_context_type_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["faq_manager"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/faq/{uuid.uuid4()}", json={"context_type": "invalid"})
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_list_faq_invalid_context_type_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["faq_manager"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/faq?context_type=bad_context")
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_create_faq_valid_context_type_accepted():
+    app.dependency_overrides[get_current_active_user] = _auth(["faq_manager"])
+    app.dependency_overrides[get_db] = _db_for_create()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/admin/faq", json={"question": "Q?", "answer": "A.", "context_type": "government_ministries"})
+        assert r.status_code == 201
+        assert r.json()["context_type"] == "government_ministries"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_create_faq_null_context_type_accepted():
+    app.dependency_overrides[get_current_active_user] = _auth(["faq_manager"])
+    app.dependency_overrides[get_db] = _db_for_create()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/admin/faq", json={"question": "Q?", "answer": "A."})
+        assert r.status_code == 201
+        assert r.json()["context_type"] is None
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+# ── Approve archived FAQ blocked (Fix 2) ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_approve_archived_faq_returns_409():
+    item = _faq_item(status="archived")
+    original_approver = item.approved_by_user_id
+    app.dependency_overrides[get_current_active_user] = _auth(["faq_manager"])
+    app.dependency_overrides[get_db] = _db_for_get(item)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/faq/{uuid.uuid4()}/approve")
+        assert r.status_code == 409
+        assert item.status == "archived"
+        assert item.approved_by_user_id == original_approver
+        assert item.approved_at is None
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+# ── user_admin forbidden on FAQ write actions ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_user_admin_cannot_approve_faq():
+    app.dependency_overrides[get_current_active_user] = _auth(["user_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/faq/{uuid.uuid4()}/approve")
+        assert r.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_user_admin_cannot_archive_faq():
+    app.dependency_overrides[get_current_active_user] = _auth(["user_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/faq/{uuid.uuid4()}/archive")
+        assert r.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_user_admin_cannot_update_faq():
+    app.dependency_overrides[get_current_active_user] = _auth(["user_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/faq/{uuid.uuid4()}", json={"question": "New?"})
+        assert r.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)

@@ -108,4 +108,4 @@ All audit events record `actor_user_id` and `target_id`.
 - FAQ items are **not yet connected to the RAG retrieval pipeline** — they exist in the database but are not indexed for embedding or search.
 - No frontend FAQ management UI yet.
 - No bulk import/export.
-- `context_type` is validated by a DB check constraint but not validated in the API layer (will cause a DB error if invalid).
+- `context_type` is validated at the API layer (Pydantic Literal) before DB access, returning 422 for invalid values.
