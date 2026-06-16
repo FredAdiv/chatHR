@@ -76,6 +76,33 @@ docker compose exec api python -m scripts.seed_demo_chat_data
 
 > **שים לב:** נתוני הdemo אינם מקור רשמי אמיתי — לצורכי בדיקה בלבד.
 
+## טעינת מקור רשמי יחיד לצ'אט
+
+לטעינת דף gov.il אמיתי לתוך אינדקס חדש ופעיל (מחליף כל אינדקס קודם):
+
+```bash
+docker compose exec api python -m scripts.load_single_source_to_active_index \
+  "https://www.gov.il/he/departments/policies/2017_des87"
+```
+
+**ארגומנטים אופציונליים:**
+
+| דגל | ברירת מחדל | תיאור |
+|-----|-----------|-------|
+| `--context-type` | `government_ministries` | `government_ministries` / `defense_system` / `health_system` |
+| `--authority-level` | `3` | 1-5, נמוך = עוצמה גבוהה יותר |
+| `--source-name` | נגזר מ-URL | שם קריא לאדם |
+| `--index-version` | `manual-local-v1` | תווית גרסת האינדקס |
+
+**אחרי הרצה מוצלחת:**
+- **כניסה:** `chat@example.com` / `chat_dev_password`
+- **הקשר:** המתאים ל-`--context-type` שבחרת
+- **שאל שאלה** הקשורה למסמך שנטען
+- **צפוי:** תשובת LLM (fake-local placeholder) + כרטיסי מקור מהמקור שנטען
+
+> **הגבלות אבטחה:** רק URLים של gov.il מתקבלים. הסקריפט מגן מפני SSRF.
+> תוכן הדף נשמר ב-MinIO בלבד — לא ב-DB וגם לא בלוגים.
+
 ## Stopping services
 
 ```bash
