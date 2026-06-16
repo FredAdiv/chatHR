@@ -73,6 +73,16 @@ def test_url_rejects_empty():
         validate_url("")
 
 
+def test_url_rejects_link_local():
+    with pytest.raises(ValueError, match="not allowed"):
+        validate_url("http://169.254.169.254/latest/meta-data/")
+
+
+def test_url_rejects_169_254_other():
+    with pytest.raises(ValueError, match="not allowed"):
+        validate_url("http://169.254.0.1/data")
+
+
 # ── Content hashing ───────────────────────────────────────────────────────────
 
 from app.services.ingestion.hash_utils import sha256_hex
@@ -243,3 +253,55 @@ async def test_fetch_url_valid_redirect_is_followed():
 
     assert result.error is None
     assert result.content == b"<html>new page</html>"
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_redirect_to_link_local_is_blocked():
+    """AWS metadata service (169.254.169.254) must be blocked via redirect SSRF."""
+    redirect_resp = _make_response(301, b"", {"location": "http://169.254.169.254/latest/meta-data/"}, is_redirect=True)
+    mock_client = _make_mock_client([redirect_resp])
+
+    with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
+        result = await fetch_url("https://example.gov.il/page")
+
+    assert result.error is not None
+    assert "blocked" in result.error.lower() or "not allowed" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_redirect_to_ftp_scheme_is_blocked():
+    """Redirect to non-http/https scheme must be blocked."""
+    redirect_resp = _make_response(301, b"", {"location": "ftp://files.example.com/data"}, is_redirect=True)
+    mock_client = _make_mock_client([redirect_resp])
+
+    with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
+        result = await fetch_url("https://example.gov.il/page")
+
+    assert result.error is not None
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_redirect_chain_blocked_on_second_hop():
+    """Redirect chain: public → public → private must be blocked at the private hop."""
+    hop1 = _make_response(301, b"", {"location": "https://public.gov.il/step2"}, is_redirect=True)
+    hop2 = _make_response(301, b"", {"location": "http://10.0.0.1/internal"}, is_redirect=True)
+    mock_client = _make_mock_client([hop1, hop2])
+
+    with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
+        result = await fetch_url("https://example.gov.il/page")
+
+    assert result.error is not None
+    assert "blocked" in result.error.lower() or "not allowed" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_max_redirects_returns_error():
+    """Exceeding max redirects returns an error, not an infinite loop."""
+    redirect = _make_response(301, b"", {"location": "https://www.gov.il/next"}, is_redirect=True)
+    mock_client = _make_mock_client([redirect] * 10)
+
+    with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
+        result = await fetch_url("https://example.gov.il/page")
+
+    assert result.error is not None
+    assert "redirect" in result.error.lower()

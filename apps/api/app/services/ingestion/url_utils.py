@@ -9,6 +9,7 @@ _PRIVATE_HOST_PATTERNS = [
     re.compile(r"^10\."),
     re.compile(r"^172\.(1[6-9]|2[0-9]|3[01])\."),
     re.compile(r"^192\.168\."),
+    re.compile(r"^169\.254\."),   # link-local, includes AWS metadata 169.254.169.254
     re.compile(r"^::1$"),
     re.compile(r"^0\.0\.0\.0$"),
 ]
