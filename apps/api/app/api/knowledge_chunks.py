@@ -21,7 +21,7 @@ from app.db.session import get_db
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge-viewer"])
 
-_VIEWER_ROLES = ["chat_user", "system_admin"]
+_VIEWER_ROLES = ["chat_user", "knowledge_admin", "system_admin"]
 _EXCERPT_MAX_CHARS = 1000
 
 
@@ -47,7 +47,7 @@ async def get_chunk(
 ) -> ChunkViewResponse:
     """Return safe citation metadata and excerpt for a retrieved chunk.
 
-    Accessible by chat_user to view cited sources from chat answers.
+    Accessible by chat_user, knowledge_admin, or system_admin.
     Never returns MinIO object keys, storage paths, or full document content.
     """
     result = await db.execute(

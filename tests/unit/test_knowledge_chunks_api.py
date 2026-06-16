@@ -88,9 +88,26 @@ async def test_chunk_viewer_anonymous_returns_401():
 
 
 @pytest.mark.asyncio
-async def test_chunk_viewer_knowledge_admin_cannot_access_returns_403():
-    """knowledge_admin without chat_user role must not access chunk viewer."""
+async def test_chunk_viewer_knowledge_admin_can_access():
+    """knowledge_admin must be able to access the chunk viewer."""
     dep, _ = _auth(["knowledge_admin"])
+    chunk_id = uuid.uuid4()
+    row = _make_chunk_row(chunk_id=chunk_id)
+    app.dependency_overrides[get_current_active_user] = dep
+    app.dependency_overrides[get_db] = _db_with_row(row)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get(f"/knowledge/chunks/{chunk_id}")
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_chunk_viewer_feedback_reviewer_cannot_access_returns_403():
+    """feedback_reviewer without any of the viewer roles must not access chunk viewer."""
+    dep, _ = _auth(["feedback_reviewer"])
     app.dependency_overrides[get_current_active_user] = dep
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
