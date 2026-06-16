@@ -4,6 +4,8 @@ Tests:
 1. Rejects non-gov.il URLs
 2. Does not activate index on parse failure
 3. Creates IndexVersion with status=building before generating embeddings
+4. HTTP 403 produces safe error message without response body
+5. Downloader sends expected headers
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "apps", "api"))
@@ -222,3 +224,76 @@ async def test_index_building_before_embeddings():
     assert "building" in statuses_at_embed_time, (
         f"Expected 'building' status during embed, got: {statuses_at_embed_time}"
     )
+
+
+# ── 4. HTTP 403 produces safe error message ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_403_produces_safe_error_message():
+    """A 403 response must raise RuntimeError with the safe advisory message,
+    not include any raw response body."""
+    from scripts.load_single_source_to_active_index import load_source
+    from app.services.ingestion.downloader import FetchResult
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+
+    async def mock_execute(stmt):
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        result.scalars.return_value.all.return_value = []
+        return result
+
+    db.execute = mock_execute
+
+    fake_fetch_403 = FetchResult(
+        url="https://www.gov.il/he/blocked",
+        status_code=403,
+        content_type="text/html",
+        etag=None,
+        last_modified=None,
+        content=b"<html>Access Denied - internal server page with sensitive info</html>",
+        error=None,
+    )
+
+    with (
+        patch("scripts.load_single_source_to_active_index.get_embedding_provider", return_value=MagicMock()),
+        patch("scripts.load_single_source_to_active_index.fetch_url", AsyncMock(return_value=fake_fetch_403)),
+        patch("scripts.load_single_source_to_active_index.put_bytes"),
+        patch("scripts.load_single_source_to_active_index.sha256_hex", return_value="ab" * 32),
+        patch("scripts.load_single_source_to_active_index.detect_document_type", return_value="html"),
+    ):
+        with pytest.raises(RuntimeError) as exc_info:
+            await load_source(
+                db=db,
+                url="https://www.gov.il/he/blocked",
+                context_type="government_ministries",
+                authority_level=3,
+                source_name=None,
+                index_version_label="test-403-v1",
+            )
+
+    error_message = str(exc_info.value)
+    # Must mention 403 and give advisory
+    assert "403" in error_message
+    assert "PDF" in error_message or "gov.il" in error_message
+    # Must NOT contain raw response body content
+    assert "Access Denied" not in error_message
+    assert "internal server page" not in error_message
+
+
+# ── 5. Downloader sends expected headers ──────────────────────────────────────
+
+def test_downloader_default_headers_present():
+    """_DEFAULT_HEADERS must include User-Agent, Accept, and Accept-Language."""
+    from app.services.ingestion.downloader import _DEFAULT_HEADERS
+
+    assert "User-Agent" in _DEFAULT_HEADERS
+    assert "Accept" in _DEFAULT_HEADERS
+    assert "Accept-Language" in _DEFAULT_HEADERS
+    # User-Agent must identify the tool, not impersonate a browser
+    assert "ChatHR" in _DEFAULT_HEADERS["User-Agent"]
+    # Accept-Language must include Hebrew
+    assert "he" in _DEFAULT_HEADERS["Accept-Language"]

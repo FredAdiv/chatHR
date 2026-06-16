@@ -129,6 +129,11 @@ async def load_source(
         raise RuntimeError(
             f"Download failed at stage 'fetch': {fetch_result.error or 'no content received'}"
         )
+    if fetch_result.status_code == 403:
+        raise RuntimeError(
+            "The server returned HTTP 403. The URL may block automated downloads. "
+            "Try a direct official PDF/document URL or another gov.il page."
+        )
     if fetch_result.status_code and fetch_result.status_code >= 400:
         raise RuntimeError(
             f"Download failed: HTTP {fetch_result.status_code}"

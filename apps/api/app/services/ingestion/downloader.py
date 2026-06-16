@@ -19,6 +19,15 @@ MAX_BYTES = 20 * 1024 * 1024  # 20 MB — documented ingestion limit
 _MAX_REDIRECTS = 5
 _TIMEOUT = 30.0
 
+# Standard browser-like headers that reduce 403s from gov.il servers.
+# These identify the tool honestly — no impersonation of real browsers.
+# SSRF protections and redirect validation remain fully intact.
+_DEFAULT_HEADERS = {
+    "User-Agent": "ChatHR-MVP-LocalIndexer/0.1 (local dev tool; not a commercial crawler)",
+    "Accept": "text/html,application/pdf,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.7,en;q=0.6",
+}
+
 
 @dataclass
 class FetchResult:
@@ -45,6 +54,7 @@ async def fetch_url(url: str) -> FetchResult:
         async with httpx.AsyncClient(
             follow_redirects=False,
             timeout=_TIMEOUT,
+            headers=_DEFAULT_HEADERS,
         ) as client:
             current_url = url
             hops = 0
