@@ -129,6 +129,19 @@ async def test_parse_failure_records_failed_status():
     assert b"this is not" not in (result.error_message or "").encode("utf-8")
 
 
+@pytest.mark.asyncio
+async def test_parse_failure_creates_no_chunks():
+    doc = _make_source_doc()
+    doc.document_type = "pdf"
+    db = _make_db(source_doc=doc)
+
+    with patch("app.services.parsing.orchestrator.get_bytes", return_value=b"not a pdf"):
+        await parse_and_chunk_source_document(db, doc.id)
+
+    chunks = [x for x in db._added if isinstance(x, DocumentChunk)]
+    assert len(chunks) == 0
+
+
 # ── Duplicate prevention ──────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
