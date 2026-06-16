@@ -237,6 +237,32 @@ User → Next.js → FastAPI (auth + RBAC check)
 - Private/internal IP addresses blocked at URL validation layer
 - All authorization server-side (knowledge_admin and system_admin only)
 
-### Phase 7 — Pending
+### Phase 7 — Document Parsing and Chunking ✅
 
-Chat endpoint, streaming, FAQ management UI, document text parsing/chunking, embeddings, pgvector index build, RAG retrieval, LLM Gateway, privacy guard, SSO.
+| Component | Status |
+|---|---|
+| DB models: ParsedDocument, DocumentChunk | ✅ Done |
+| Alembic migration 0004_parsing_tables | ✅ Done |
+| HTML parser (BeautifulSoup, removes script/style) | ✅ Done |
+| PDF parser (pypdf, text layer only, no OCR) | ✅ Done |
+| DOCX parser (python-docx, paragraphs) | ✅ Done |
+| XLSX parser (openpyxl, cell text) | ✅ Done |
+| Unknown/fallback parser (UTF-8, binary detection) | ✅ Done |
+| Chunker: paragraph-boundary-aware, overlapping | ✅ Done |
+| parse_and_chunk_source_document orchestrator | ✅ Done |
+| POST /admin/parsing/source-documents/{id}/parse | ✅ Done |
+| GET /admin/parsing/parsed-documents | ✅ Done |
+| GET /admin/parsing/parsed-documents/{id} | ✅ Done |
+| GET /admin/parsing/parsed-documents/{id}/chunks | ✅ Done |
+| 49 new unit tests | ✅ Done |
+| docs/parsing-and-chunking.md | ✅ Done |
+
+Phase 7 constraints:
+- No embeddings or pgvector columns yet
+- No OCR; no external resource fetching from documents
+- Raw bytes remain in MinIO only; full text not in audit logs
+- Parser safety: documents never executed, no macros run
+
+### Phase 8 — Pending
+
+Embeddings (pgvector), RAG retrieval, chat endpoint, streaming, LLM Gateway (OpenRouter), privacy guard, SSO, FAQ management UI.

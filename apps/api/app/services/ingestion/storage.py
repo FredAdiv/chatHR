@@ -32,6 +32,17 @@ def ensure_bucket_exists(bucket: str) -> None:
         client.make_bucket(bucket)
 
 
+def get_bytes(bucket: str, object_key: str) -> bytes:
+    """Download object from MinIO and return raw bytes."""
+    client = _client()
+    response = client.get_object(bucket, object_key)
+    try:
+        return response.read()
+    finally:
+        response.close()
+        response.release_conn()
+
+
 def put_bytes(
     bucket: str,
     object_key: str,
