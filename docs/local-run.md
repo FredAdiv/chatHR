@@ -235,6 +235,54 @@ http://localhost:3000/admin/knowledge/upload
 - תוכן הגלם **אינו** נשמר ב-DB, בלוגים, או בתגובות ה-API.
 - כל העלאה מתועדת ב-Audit Log (שם קובץ, סוג, רמת סמכות, מצב).
 
+## עיבוד מסמך לאינדקס טיוטה
+
+לאחר העלאה מוצלחת, ניתן לעבד את המסמך לאינדקס טיוטה — ניתוח, פיצול לקטעים, והטמעה — ישירות מממשק הניהול.
+
+### מה קורה בעיבוד
+
+1. המסמך הגולמי נשלף מ-MinIO
+2. נמצה טקסט (parsing) לפי סוג הקובץ
+3. הטקסט מפוצל לקטעים (chunking)
+4. נוצרות הטמעות (embeddings) עם ספק fake-local
+5. נוצרת גרסת אינדקס חדשה עם `status=ready`
+
+> **חשוב:** האינדקס נשאר במצב `ready` ואינו מופעל אוטומטית.
+> המסמך לא יהיה גלוי לשאלות משתמשי צ'אט עד לשלב פרסום נפרד.
+
+### כיצד לעבד
+
+לאחר שהמסמך הועלה בהצלחה, כפתור **"עבד מסמך לאינדקס טיוטה"** יופיע אוטומטית מתחת להודעת ההצלחה. לחיצה עליו תפעיל את העיבוד.
+
+לחלופין, ניתן לקרוא ישירות ל-API:
+
+```
+POST /admin/knowledge/documents/{document_id}/process
+Authorization: Bearer <token>
+```
+
+### מצבי SourceDocument
+
+| מצב | משמעות |
+|-----|--------|
+| `downloaded` | הקובץ הועלה ל-MinIO, ממתין לעיבוד |
+| `processed` | עובד בהצלחה — קיים אינדקס טיוטה |
+| `failed` | שגיאת עיבוד — ניתן לנסות שנית |
+
+### API למעקב מצב
+
+```
+GET /admin/knowledge/documents/{document_id}
+Authorization: Bearer <token>
+```
+
+מחזיר metadata בלבד: `document_id`, `title`, `document_type`, `authority_level`, `status`, `index_version_id`.
+ללא תוכן גלם, ללא hash, ללא מפתחות MinIO.
+
+### הרשאה נדרשת
+
+`knowledge_admin` או `system_admin`.
+
 ## Stopping services
 
 ```bash

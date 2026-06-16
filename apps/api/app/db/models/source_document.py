@@ -13,7 +13,7 @@ class SourceDocument(Base):
     __table_args__ = (
         UniqueConstraint("knowledge_source_id", "url", name="uq_source_documents_source_url"),
         CheckConstraint(
-            "status IN ('discovered', 'downloaded', 'unchanged', 'failed', 'deleted')",
+            "status IN ('discovered', 'downloaded', 'unchanged', 'failed', 'deleted', 'processed')",
             name="ck_source_documents_status",
         ),
     )

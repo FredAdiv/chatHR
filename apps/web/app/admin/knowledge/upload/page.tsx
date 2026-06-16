@@ -20,6 +20,15 @@ interface UploadResult {
   message: string;
 }
 
+interface ProcessResult {
+  document_id: string;
+  status: string;
+  index_version_id: string;
+  index_version_label: string;
+  chunk_count: number;
+  message: string;
+}
+
 export default function KnowledgeUploadPage() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -39,6 +48,10 @@ export default function KnowledgeUploadPage() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
+
+  const [processing, setProcessing] = useState(false);
+  const [processResult, setProcessResult] = useState<ProcessResult | null>(null);
+  const [processError, setProcessError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -149,6 +162,33 @@ export default function KnowledgeUploadPage() {
       setErrors(["שגיאת רשת. אנא בדוק את החיבור ונסה שנית."]);
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleProcess(documentId: string) {
+    if (!token) return;
+    setProcessing(true);
+    setProcessResult(null);
+    setProcessError(null);
+    try {
+      const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+      const res = await fetch(`${base}/admin/knowledge/documents/${documentId}/process`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        let detail: { error?: string; message?: string } | string = res.statusText;
+        try { detail = await res.json(); } catch { /* use statusText */ }
+        const msg = typeof detail === "object" ? detail?.message ?? "שגיאה בעיבוד." : "שגיאה בעיבוד.";
+        setProcessError(msg);
+        return;
+      }
+      const data: ProcessResult = await res.json();
+      setProcessResult(data);
+    } catch {
+      setProcessError("שגיאת רשת. אנא בדוק את החיבור ונסה שנית.");
+    } finally {
+      setProcessing(false);
     }
   }
 
@@ -317,15 +357,56 @@ export default function KnowledgeUploadPage() {
               </div>
             )}
 
-            {/* Success */}
+            {/* Upload Success + Process button */}
             {result && (
               <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "6px", padding: "0.75rem 1rem", marginBottom: "1rem", color: "#166534", fontSize: "0.9rem" }}>
                 <div style={{ fontWeight: "bold", marginBottom: "0.3rem" }}>המסמך הועלה בהצלחה</div>
                 <div>{result.message}</div>
                 <div style={{ marginTop: "0.4rem", fontSize: "0.82rem", color: "#374151" }}>
                   <span>מזהה מסמך: {result.document_id}</span><br />
-                  <span>מצב: {result.status}</span>
+                  <span>מצב: {processResult ? processResult.status : result.status}</span>
+                  {processResult && (
+                    <>
+                      <br /><span>גרסת אינדקס: {processResult.index_version_label}</span>
+                      <br /><span>קטעים: {processResult.chunk_count}</span>
+                    </>
+                  )}
                 </div>
+
+                {!processResult && (
+                  <div style={{ marginTop: "0.75rem" }}>
+                    <div style={{ fontSize: "0.82rem", color: "#374151", marginBottom: "0.4rem" }}>
+                      השלב הבא: עיבוד המסמך לאינדקס טיוטה (ניתוח, פיצול לקטעים, הטמעה).
+                      <br /><strong>אינדקס הטיוטה לא יפורסם למשתמשים אוטומטית.</strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleProcess(result.document_id)}
+                      disabled={processing}
+                      style={{
+                        padding: "0.4rem 1rem",
+                        borderRadius: "4px",
+                        border: "none",
+                        background: processing ? "#86efac" : "#16a34a",
+                        color: "#fff",
+                        cursor: processing ? "not-allowed" : "pointer",
+                        fontWeight: "bold",
+                        fontSize: "0.9rem",
+                      }}
+                    >
+                      {processing ? "מעבד..." : "עבד מסמך לאינדקס טיוטה"}
+                    </button>
+                    {processError && (
+                      <div style={{ marginTop: "0.4rem", color: "#b91c1c", fontSize: "0.85rem" }}>{processError}</div>
+                    )}
+                  </div>
+                )}
+
+                {processResult && (
+                  <div style={{ marginTop: "0.6rem", padding: "0.5rem 0.75rem", background: "#dcfce7", borderRadius: "4px", fontSize: "0.85rem", color: "#14532d" }}>
+                    <strong>עיבוד הושלם</strong> — {processResult.message}
+                  </div>
+                )}
               </div>
             )}
 
