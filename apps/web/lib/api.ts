@@ -58,6 +58,20 @@ export interface FeedbackResponse {
   rating: string;
 }
 
+export interface ChunkViewResponse {
+  chunk_id: string;
+  source_document_id: string;
+  knowledge_source_id: string;
+  knowledge_source_name: string;
+  authority_level: number;
+  source_title: string | null;
+  document_type: string | null;
+  section_title: string | null;
+  page_number: number | null;
+  chunk_index: number;
+  excerpt: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -139,6 +153,15 @@ export async function sendMessage(
       body: JSON.stringify({ content }),
     },
   );
+}
+
+export async function getChunk(
+  token: string,
+  chunkId: string,
+): Promise<ChunkViewResponse> {
+  return apiFetch<ChunkViewResponse>(`/knowledge/chunks/${chunkId}`, {
+    headers: authHeaders(token),
+  });
 }
 
 export async function submitFeedback(

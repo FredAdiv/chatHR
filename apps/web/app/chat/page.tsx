@@ -447,20 +447,21 @@ export default function ChatPage() {
                             , עמ׳ {src.page_number}
                           </span>
                         )}
-                        {src.source_url && (
-                          <a
-                            href={src.source_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{
-                              marginRight: "0.5rem",
-                              color: "#2563eb",
-                              fontSize: "0.8rem",
-                            }}
-                          >
-                            קישור
-                          </a>
-                        )}
+                        <button
+                          onClick={() => router.push(`/sources/${src.chunk_id}`)}
+                          style={{
+                            marginRight: "0.5rem",
+                            background: "transparent",
+                            border: "none",
+                            color: "#2563eb",
+                            fontSize: "0.8rem",
+                            cursor: "pointer",
+                            padding: 0,
+                            textDecoration: "underline",
+                          }}
+                        >
+                          צפה במקור
+                        </button>
                       </div>
                     ))}
                   </div>
