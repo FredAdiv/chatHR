@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 
+from app.api.admin_users import router as admin_users_router
+from app.api.auth import router as auth_router
 from app.api.dev import router as dev_router
 from app.core.config import settings
 
@@ -9,6 +11,8 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.include_router(auth_router)
+app.include_router(admin_users_router)
 # DEV-ONLY router — remove or gate behind feature flag before production
 app.include_router(dev_router)
 

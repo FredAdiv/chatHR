@@ -156,6 +156,21 @@ User → Next.js → FastAPI (auth + RBAC check)
 | Unit tests for RBAC and audit helpers | ✅ Done |
 | `docs/database.md` | ✅ Done |
 
-### Phase 3 — Pending
+### Phase 3 — Authentication & Authorization ✅
 
-Authentication (JWT), login flow, RBAC enforcement in routes, chat endpoint, FAQ management UI, RAG pipeline, LLM Gateway, privacy guard.
+| Component | Status |
+|---|---|
+| `POST /auth/login` — bcrypt verify, JWT issue, audit | ✅ Done |
+| `GET /auth/me` — token validation, user profile | ✅ Done |
+| `GET/POST /admin/users` — CRUD with RBAC | ✅ Done |
+| `PATCH /admin/users/{id}/roles` — role replacement + audit | ✅ Done |
+| `PATCH /admin/users/{id}/deactivate` — deactivation + audit | ✅ Done |
+| `GET /dev/db-info` protected with `system_admin` role | ✅ Done |
+| Alembic migration 0002 (password_hash, last_login_at) | ✅ Done |
+| `scripts/create_initial_admin.py` — idempotent bootstrap | ✅ Done |
+| Unit tests: security (8 tests), auth API (4 tests) | ✅ Done |
+| `docs/auth.md` | ✅ Done |
+
+### Phase 4 — Pending
+
+Chat endpoint, streaming, FAQ management UI, RAG pipeline, LLM Gateway, privacy guard, SSO.

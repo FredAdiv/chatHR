@@ -58,6 +58,9 @@ docker compose run --rm api alembic upgrade head
 
 # Seed required roles after migration:
 docker compose run --rm api python scripts/seed_roles.py
+
+# Create initial system_admin user (first time only):
+docker compose run --rm api python -m scripts.create_initial_admin
 ```
 
 ## Running Tests
@@ -86,17 +89,32 @@ docs/              Project documentation
 
 - [Project Brief](docs/project-brief.md)
 - [Architecture](docs/architecture.md)
+- [Authentication](docs/auth.md)
+- [Database](docs/database.md)
 - [Claude Code Instructions](docs/claude-code-instructions.md)
 - [Codex / QA Instructions](docs/codex-qa-instructions.md)
 
+## Authentication
+
+See [docs/auth.md](docs/auth.md) for the full auth flow. Quick start:
+
+```bash
+# Login:
+curl -X POST http://localhost:8000/auth/login \
+  -d "username=admin@example.com&password=yourpassword"
+
+# Use the returned token:
+curl http://localhost:8000/auth/me \
+  -H "Authorization: Bearer <token>"
+```
+
 ## Current Limitations
 
-MVP Phase 1–2 complete. The following features are **not yet implemented**:
+MVP Phase 1–3 complete. The following features are **not yet implemented**:
 
-- User authentication and sessions (JWT)
 - Chat interface and streaming
 - RAG pipeline (document indexing and retrieval)
 - FAQ management UI
-- Full RBAC enforcement in routes (schema + helpers exist)
 - LLM Gateway / OpenRouter integration
 - Privacy guard
+- SSO / external identity provider

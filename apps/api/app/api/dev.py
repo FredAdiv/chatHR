@@ -6,13 +6,19 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends
 
+from app.api.deps import require_role
+from app.core.roles import RoleName
+from app.db.models.user import User
 from app.db.session import get_db
 
 router = APIRouter(prefix="/dev", tags=["dev"])
 
 
 @router.get("/db-info")
-async def dev_db_info(db: AsyncSession = Depends(get_db)):
+async def dev_db_info(
+    db: AsyncSession = Depends(get_db),
+    _actor: User = Depends(require_role(RoleName.SYSTEM_ADMIN)),
+):
     """Return non-sensitive DB readiness info and role count. DEV ONLY."""
     try:
         result = await db.execute(text("SELECT COUNT(*) FROM roles"))
