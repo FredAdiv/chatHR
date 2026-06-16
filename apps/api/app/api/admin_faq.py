@@ -19,6 +19,7 @@ router = APIRouter(prefix="/admin/faq", tags=["faq"])
 _FAQ_ROLES = [RoleName.FAQ_MANAGER, RoleName.SYSTEM_ADMIN]
 
 ContextType = Literal["government_ministries", "defense_system", "health_system"]
+FaqStatus = Literal["draft", "approved", "archived"]
 
 
 class FaqCreate(BaseModel):
@@ -92,7 +93,7 @@ def _faq_dict(item: FaqItem) -> dict:
 
 @router.get("", response_model=list[FaqResponse])
 async def list_faq(
-    status: str | None = Query(default=None),
+    status: FaqStatus | None = Query(default=None),
     context_type: ContextType | None = Query(default=None),
     topic: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),

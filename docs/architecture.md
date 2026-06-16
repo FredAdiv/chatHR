@@ -185,6 +185,28 @@ User → Next.js → FastAPI (auth + RBAC check)
 | 21 new unit tests (admin route auth + FAQ API behavior) | ✅ Done |
 | docs/faq.md | ✅ Done |
 
-### Phase 5 — Pending
+### Phase 5 — Knowledge Sources & Index Versions ✅
 
-Chat endpoint, streaming, FAQ management UI, RAG pipeline, LLM Gateway, privacy guard, SSO.
+| Component | Status |
+|---|---|
+| GET/POST/PATCH /admin/knowledge-sources — CRUD with authority_level 1-5 validation | ✅ Done |
+| PATCH /admin/knowledge-sources/{id}/deactivate + activate | ✅ Done |
+| GET/POST /admin/index-versions — create in building status | ✅ Done |
+| PATCH /admin/index-versions/{id}/mark-ready — building → ready | ✅ Done |
+| PATCH /admin/index-versions/{id}/mark-quality-failed | ✅ Done |
+| PATCH /admin/index-versions/{id}/activate — ready → active, auto-archives previous | ✅ Done |
+| PATCH /admin/index-versions/{id}/archive — ready/quality_check_failed → archived | ✅ Done |
+| FAQ status filter validated as Literal (draft/approved/archived) | ✅ Done |
+| Unit tests: 20 new tests (knowledge sources + index versions + FAQ status filter) | ✅ Done |
+| docs/knowledge-sources.md | ✅ Done |
+| docs/indexing.md | ✅ Done |
+
+**Constraints enforced:**
+- At most one active index version at any time
+- Active index version cannot be archived directly — only replaced by activating a newer `ready` version
+- Only `ready` versions can be activated
+- `knowledge_admin` and `system_admin` only — all checks server-side
+
+### Phase 6 — Pending
+
+Chat endpoint, streaming, FAQ management UI, RAG pipeline (crawling, embeddings, vector search), LLM Gateway, privacy guard, SSO.

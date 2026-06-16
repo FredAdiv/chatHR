@@ -375,3 +375,16 @@ async def test_user_admin_cannot_update_faq():
         assert r.status_code == 403
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
+
+
+# ── FAQ status filter validation (Part E) ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_faq_invalid_status_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["faq_manager"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/faq?status=invalid_status")
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
