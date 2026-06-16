@@ -62,7 +62,7 @@ def _db_for_list(items=None):
     return _dep
 
 
-def _ks_item(is_active=True, authority_level=2):
+def _ks_item(is_active=True, authority_level=2, context_type=None):
     now = datetime.now(timezone.utc)
     item = MagicMock(spec=KnowledgeSource)
     item.id = uuid.uuid4()
@@ -71,6 +71,7 @@ def _ks_item(is_active=True, authority_level=2):
     item.url = "https://example.gov.il/takshir"
     item.authority_level = authority_level
     item.is_active = is_active
+    item.context_type = context_type
     item.created_at = now
     item.updated_at = now
     return item
@@ -299,3 +300,84 @@ async def test_list_without_authority_level_returns_200():
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
+
+
+# ── context_type ──────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_create_with_valid_context_type_returns_201():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_create()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/admin/knowledge-sources", json={
+                "name": "Health Ministry",
+                "source_type": "ministry",
+                "authority_level": 2,
+                "context_type": "health_system",
+            })
+        assert r.status_code == 201
+        assert r.json()["context_type"] == "health_system"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_create_with_invalid_context_type_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/admin/knowledge-sources", json={
+                "name": "Source",
+                "source_type": "ministry",
+                "authority_level": 2,
+                "context_type": "invalid_sector",
+            })
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_create_with_null_context_type_returns_201():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_create()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/admin/knowledge-sources", json={
+                "name": "General Source",
+                "source_type": "general",
+                "authority_level": 5,
+            })
+        assert r.status_code == 201
+        assert r.json()["context_type"] is None
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_list_filter_by_context_type_returns_200():
+    item = _ks_item(context_type="government_ministries")
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_list([item])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/knowledge-sources?context_type=government_ministries")
+        assert r.status_code == 200
+        assert r.json()[0]["context_type"] == "government_ministries"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_list_invalid_context_type_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/knowledge-sources?context_type=unknown")
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)

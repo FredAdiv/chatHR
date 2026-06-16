@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
@@ -26,6 +27,8 @@ _KS_ROLES = [RoleName.KNOWLEDGE_ADMIN, RoleName.SYSTEM_ADMIN]
 _AUTHORITY_MIN = 1
 _AUTHORITY_MAX = 5
 
+ContextType = Literal["government_ministries", "defense_system", "health_system"]
+
 
 class KnowledgeSourceCreate(BaseModel):
     name: str
@@ -33,6 +36,7 @@ class KnowledgeSourceCreate(BaseModel):
     url: str | None = None
     authority_level: int
     is_active: bool = True
+    context_type: ContextType | None = None
 
     @field_validator("name", "source_type")
     @classmethod
@@ -55,6 +59,7 @@ class KnowledgeSourceUpdate(BaseModel):
     url: str | None = None
     authority_level: int | None = None
     is_active: bool | None = None
+    context_type: ContextType | None = None
 
     @field_validator("name", "source_type")
     @classmethod
@@ -78,6 +83,7 @@ class KnowledgeSourceResponse(BaseModel):
     url: str | None
     authority_level: int
     is_active: bool
+    context_type: str | None
     created_at: str | None
     updated_at: str | None
 
@@ -90,6 +96,7 @@ def _ks_dict(source: KnowledgeSource) -> dict:
         "url": source.url,
         "authority_level": source.authority_level,
         "is_active": source.is_active,
+        "context_type": source.context_type,
         "created_at": source.created_at.isoformat() if source.created_at else None,
         "updated_at": source.updated_at.isoformat() if source.updated_at else None,
     }
@@ -100,6 +107,7 @@ async def list_knowledge_sources(
     is_active: bool | None = Query(default=None),
     authority_level: int | None = Query(default=None, ge=_AUTHORITY_MIN, le=_AUTHORITY_MAX),
     source_type: str | None = Query(default=None),
+    context_type: ContextType | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     _actor: User = Depends(require_any_role(_KS_ROLES)),
 ):
@@ -110,6 +118,8 @@ async def list_knowledge_sources(
         q = q.where(KnowledgeSource.authority_level == authority_level)
     if source_type:
         q = q.where(KnowledgeSource.source_type == source_type)
+    if context_type is not None:
+        q = q.where(KnowledgeSource.context_type == context_type)
     result = await db.execute(q)
     return [_ks_dict(s) for s in result.scalars().all()]
 
@@ -128,6 +138,7 @@ async def create_knowledge_source(
         url=req.url,
         authority_level=req.authority_level,
         is_active=req.is_active,
+        context_type=req.context_type,
         created_at=now,
         updated_at=now,
     )

@@ -288,6 +288,30 @@ Phase 7 constraints:
 - Raw embedding vectors not returned in list API
 - All authorization server-side (knowledge_admin, system_admin)
 
-### Phase 9 — Pending
+### Phase 9 — Retrieval Foundation ✅
 
-RAG retrieval pipeline, real embedding provider via LLM Gateway (with privacy guard), chat endpoint, streaming, OpenRouter, privacy guard, SSO, FAQ management UI.
+| Component | Status |
+|---|---|
+| `context_type` added to `KnowledgeSource` (migration 0006) | ✅ Done |
+| `retrieve_chunks` service (pgvector cosine distance, 5-table join) | ✅ Done |
+| `build_citation_metadata` helper | ✅ Done |
+| `RetrievedChunk` dataclass with citation metadata | ✅ Done |
+| Context filtering (matching + null/general sources) | ✅ Done |
+| Authority tie-breaker ordering (lower = stronger) | ✅ Done |
+| POST /admin/retrieval/search (admin/debug only) | ✅ Done |
+| GET /admin/retrieval/health | ✅ Done |
+| Knowledge Sources API updated with context_type | ✅ Done |
+| 30 new unit tests | ✅ Done |
+| docs/retrieval.md | ✅ Done |
+
+**Constraints enforced:**
+- Retrieval admin/debug only — not exposed to chat users
+- query_text never stored in audit metadata or logs
+- No LLM calls, no OpenRouter, no external service calls
+- Uses fake-local embeddings (not semantically meaningful in MVP)
+- All authorization server-side (knowledge_admin, system_admin)
+- Context filter includes matching type + null/general sources
+
+### Phase 10 — Pending
+
+Real embedding provider via LLM Gateway with privacy guard, RAG answer generation with citations, chat endpoint with streaming, OpenRouter integration, frontend UI, SSO.
