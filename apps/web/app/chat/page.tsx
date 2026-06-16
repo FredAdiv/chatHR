@@ -43,9 +43,14 @@ function safeErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401 || err.status === 403) return "__redirect_login__";
     if (err.status === 422) {
-      const d = err.detail as { error?: string } | string;
-      if (typeof d === "object" && d?.error === "privacy_guard_blocked") {
-        return "ההודעה נחסמה: נמצאו פרטים מזהים אישיים. הסר מידע אישי ונסה שנית.";
+      const d = err.detail as { error?: string; public_message?: string } | string;
+      if (typeof d === "object") {
+        if (d?.error === "privacy_guard_blocked") {
+          return "ההודעה נחסמה: נמצאו פרטים מזהים אישיים. הסר מידע אישי ונסה שנית.";
+        }
+        if (d?.error === "guardrail_blocked" && d?.public_message) {
+          return d.public_message;
+        }
       }
       return "הבקשה אינה תקינה. אנא נסה שנית.";
     }
@@ -588,6 +593,17 @@ export default function ChatPage() {
           flexShrink: 0,
         }}
       >
+        <p
+          style={{
+            fontSize: "0.75rem",
+            color: "#6b7280",
+            margin: "0 0 0.4rem 0",
+            lineHeight: 1.4,
+          }}
+        >
+          נא לא להזין פרטים מזהים, טקסט פוגעני או שאלות שאינן בתחום משאבי אנוש בשירות המדינה.
+          המענה מבוסס רק על מקורות רשמיים שאונדקסו במערכת.
+        </p>
         <form
           onSubmit={handleSend}
           style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end" }}

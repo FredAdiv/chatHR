@@ -24,6 +24,7 @@ from app.db.models.message_source import MessageSource
 from app.db.session import get_db
 from app.services.audit import record_audit_event
 from app.services.chat.prompt_builder import build_chat_prompt, no_source_answer
+from app.services.guardrails.input_guard import check_feedback_comment, check_user_input
 from app.services.llm_gateway.gateway import generate_with_gateway
 from app.services.llm_gateway.protocol import PrivacyGuardBlockedError
 from app.services.privacy.guard import check_text
@@ -163,6 +164,14 @@ def _build_privacy_block_response(guard_result: Any) -> dict:
     }
 
 
+def _build_guardrail_block_response(guardrail_result: Any) -> dict:
+    return {
+        "error": "guardrail_blocked",
+        "category": guardrail_result.category,
+        "public_message": guardrail_result.public_message,
+    }
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/conversations", status_code=status.HTTP_201_CREATED, response_model=ConversationResponse)
@@ -244,6 +253,14 @@ async def send_message(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=_build_privacy_block_response(guard_result),
+        )
+
+    # 1b. Product guardrails — after privacy, before storing
+    input_guard_result = check_user_input(body.content)
+    if not input_guard_result.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=_build_guardrail_block_response(input_guard_result),
         )
 
     # 2. Resolve index version
@@ -410,6 +427,13 @@ async def submit_feedback(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=_build_privacy_block_response(guard_result),
+            )
+        # Inappropriate content check on feedback comment (scope check does not apply)
+        feedback_guard_result = check_feedback_comment(body.comment)
+        if not feedback_guard_result.allowed:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=_build_guardrail_block_response(feedback_guard_result),
             )
 
     # Load message and verify ownership via conversation
