@@ -16,7 +16,7 @@ from app.core.roles import RoleName
 from app.db.models.user import User
 from app.db.session import get_db
 from app.services.audit import record_audit_event
-from app.services.embeddings.factory import get_embedding_provider
+from app.services.embeddings.gateway import get_embedding_dimension
 from app.services.retrieval.retriever import ALLOWED_CONTEXT_TYPES, retrieve_chunks
 
 router = APIRouter(prefix="/admin/retrieval", tags=["retrieval"])
@@ -139,10 +139,15 @@ async def retrieval_health(
     Returns provider config. Does not perform a DB query.
     vector_search_available reflects whether the configured provider is operational.
     """
-    provider = get_embedding_provider()
+    from app.core.config import settings as _settings
+    emb_provider = _settings.embedding_provider
+    emb_model = (
+        _settings.embedding_model if emb_provider == "fake-local"
+        else _settings.openrouter_embedding_model
+    )
     return HealthResponse(
-        embedding_provider="fake-local",
-        embedding_model=provider.model_name,
-        embedding_dimension=provider.dimension,
+        embedding_provider=emb_provider,
+        embedding_model=emb_model,
+        embedding_dimension=get_embedding_dimension(emb_provider),
         vector_search_available=True,
     )

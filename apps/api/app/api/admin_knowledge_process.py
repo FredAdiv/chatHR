@@ -33,7 +33,7 @@ from app.db.models.source_document import SourceDocument
 from app.db.models.user import User
 from app.db.session import get_db
 from app.services.audit import record_audit_event
-from app.services.embeddings.factory import get_embedding_provider
+from app.services.embeddings.gateway import embed_with_gateway, get_embedding_dimension
 from app.services.parsing.orchestrator import parse_and_chunk_source_document
 
 router = APIRouter(prefix="/admin/knowledge", tags=["knowledge-process"])
@@ -206,14 +206,21 @@ async def process_document(
         )
 
     # ── Step 2: Create draft IndexVersion ─────────────────────────────────────
-    provider = get_embedding_provider()
+    from app.core.config import settings as _settings
+    emb_provider = _settings.embedding_provider
+    emb_model = (
+        _settings.embedding_model if emb_provider == "fake-local"
+        else _settings.openrouter_embedding_model
+    )
+    emb_dimension = get_embedding_dimension(emb_provider)
+
     ts = now.strftime("%Y%m%d%H%M%S")
     version_label = f"manual-upload-{str(sd.id)[:8]}-{ts}"
 
     iv = IndexVersion(
         version_label=version_label,
         status="building",
-        embedding_model=provider.model_name,
+        embedding_model=emb_model,
         created_by_user_id=actor.id,
         created_at=now,
         metadata_json={
@@ -228,14 +235,14 @@ async def process_document(
 
     # ── Step 3: Generate embeddings ────────────────────────────────────────────
     for chunk in chunks:
-        vector = provider.embed_texts([chunk.chunk_text])[0]
+        vector = (await embed_with_gateway([chunk.chunk_text]))[0]
         db.add(ChunkEmbedding(
             document_chunk_id=chunk.id,
             source_document_id=chunk.source_document_id,
             parsed_document_id=chunk.parsed_document_id,
             index_version_id=iv.id,
-            embedding_model=provider.model_name,
-            embedding_dimension=provider.dimension,
+            embedding_model=emb_model,
+            embedding_dimension=emb_dimension,
             embedding=vector,
             content_hash=chunk.chunk_hash,
             status="embedded",

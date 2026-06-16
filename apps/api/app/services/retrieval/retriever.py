@@ -15,9 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.index_version import IndexVersion
 from app.services.embeddings.gateway import embed_with_gateway
 from app.services.retrieval.citation import CitationMetadata, build_citation_metadata
+from app.services.retrieval.reranker import rerank_candidates
 
 # Allowed context_type values matching knowledge_sources.context_type constraint
 ALLOWED_CONTEXT_TYPES = frozenset({"government_ministries", "defense_system", "health_system"})
+
+# Fetch this many candidates from vector search before lexical reranking.
+# Must be >= max(limit) * CANDIDATE_MULTIPLIER to give reranking meaningful coverage.
+_CANDIDATE_MULTIPLIER = 10
+_MAX_CANDIDATES = 100
 
 # Lower authority_level = stronger authority (tie-breaker after vector score)
 # This ordering is consistent with the authority hierarchy documented in knowledge sources.
@@ -140,11 +146,12 @@ async def retrieve_chunks(
     )[0]
     vector_str = "[" + ",".join(str(f) for f in query_vector) + "]"
 
+    candidate_limit = min(limit * _CANDIDATE_MULTIPLIER, _MAX_CANDIDATES)
     params = {
         "query_vector": vector_str,
         "index_version_id": str(index_version_id),
         "embedding_model": emb_model,
-        "limit": limit,
+        "limit": candidate_limit,
     }
 
     if context_type is not None:
@@ -155,13 +162,10 @@ async def retrieve_chunks(
 
     rows = await db.execute(stmt, params)
 
-    results: list[RetrievedChunk] = []
+    candidates: list[RetrievedChunk] = []
     for row in rows:
         distance = float(row.distance)
         score = max(0.0, 1.0 - distance)
-
-        if min_score is not None and score < min_score:
-            continue
 
         citation = build_citation_metadata(
             chunk_index=row.chunk_index,
@@ -175,7 +179,7 @@ async def retrieve_chunks(
             authority_level=row.authority_level,
         )
 
-        results.append(RetrievedChunk(
+        candidates.append(RetrievedChunk(
             chunk_id=str(row.chunk_id),
             chunk_text=row.chunk_text,
             parsed_document_id=str(row.parsed_document_id),
@@ -184,5 +188,16 @@ async def retrieve_chunks(
             score=score,
             citation=citation,
         ))
+
+    # Lexical reranking: combine vector distance with keyword overlap so that
+    # chunks whose embeddings are diluted by mixed content but contain the
+    # exact query terms are rescued from below the top-k cutoff.
+    reranked = rerank_candidates(query_text, candidates)
+
+    results: list[RetrievedChunk] = []
+    for chunk in reranked[:limit]:
+        if min_score is not None and chunk.score < min_score:
+            continue
+        results.append(chunk)
 
     return results

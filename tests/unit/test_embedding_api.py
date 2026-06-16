@@ -295,8 +295,14 @@ async def test_search_returns_200():
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter([mock_row]))
 
+    # Mock the IndexVersion.get() to return a proper index version with string attributes
+    mock_iv = MagicMock()
+    mock_iv.embedding_provider = "fake-local"
+    mock_iv.embedding_model = "fake-local-v1"
+
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.get = AsyncMock(return_value=mock_iv)
 
     async def _dep():
         yield mock_db

@@ -297,7 +297,7 @@ async def test_process_knowledge_admin_accepted():
         with (
             patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
             patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
-            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+            patch("app.api.admin_knowledge_process.embed_with_gateway", AsyncMock(return_value=[[0.0] * 128])),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
@@ -327,7 +327,7 @@ async def test_process_system_admin_accepted():
         with (
             patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
             patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
-            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+            patch("app.api.admin_knowledge_process.embed_with_gateway", AsyncMock(return_value=[[0.0] * 128])),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
@@ -353,7 +353,7 @@ async def test_process_takshir_document_type_works():
         with (
             patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
             patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
-            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+            patch("app.api.admin_knowledge_process.embed_with_gateway", AsyncMock(return_value=[[0.0] * 128])),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
@@ -419,7 +419,7 @@ async def test_process_does_not_activate_index():
         with (
             patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
             patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
-            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+            patch("app.api.admin_knowledge_process.embed_with_gateway", AsyncMock(return_value=[[0.0] * 128])),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
@@ -448,7 +448,7 @@ async def test_process_raw_content_not_in_response():
         with (
             patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
             patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
-            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+            patch("app.api.admin_knowledge_process.embed_with_gateway", AsyncMock(return_value=[[0.0] * 128])),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
@@ -500,7 +500,7 @@ async def test_process_returns_semantic_type_in_response():
         with (
             patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
             patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
-            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+            patch("app.api.admin_knowledge_process.embed_with_gateway", AsyncMock(return_value=[[0.0] * 128])),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
@@ -528,7 +528,7 @@ async def test_process_creates_draft_not_ready_index():
         with (
             patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
             patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
-            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+            patch("app.api.admin_knowledge_process.embed_with_gateway", AsyncMock(return_value=[[0.0] * 128])),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")

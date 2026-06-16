@@ -116,8 +116,8 @@ async def test_health_returns_200():
             r = await client.get("/admin/retrieval/health")
         assert r.status_code == 200
         data = r.json()
-        assert data["embedding_model"] == "fake-local-v1"
-        assert data["embedding_dimension"] == 16
+        assert isinstance(data["embedding_model"], str) and data["embedding_model"]
+        assert isinstance(data["embedding_dimension"], int) and data["embedding_dimension"] > 0
         assert data["vector_search_available"] is True
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
