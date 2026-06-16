@@ -10,6 +10,7 @@ from app.api.admin_parsing import router as admin_parsing_router
 from app.api.admin_knowledge_sources import router as admin_knowledge_sources_router
 from app.api.admin_users import router as admin_users_router
 from app.api.auth import router as auth_router
+from app.api.chat import router as chat_router
 from app.api.dev import router as dev_router
 from app.core.config import settings
 
@@ -29,6 +30,7 @@ app.include_router(admin_parsing_router)
 app.include_router(admin_embeddings_router)
 app.include_router(admin_retrieval_router)
 app.include_router(admin_llm_gateway_router)
+app.include_router(chat_router)
 # DEV-ONLY router — remove or gate behind feature flag before production
 app.include_router(dev_router)
 

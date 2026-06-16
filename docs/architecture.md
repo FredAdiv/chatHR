@@ -337,4 +337,32 @@ Phase 7 constraints:
 - `system_admin` only for all gateway admin endpoints
 
 **Remaining (Phase 10 Part 2+):**
-Real embedding provider, RAG answer generation with citations, chat endpoint with streaming, OpenRouter integration, frontend UI, SSO.
+Real embedding provider, streaming, OpenRouter integration, frontend UI, SSO.
+
+### Phase 11 — Chat/RAG Answer Flow Foundation ✅
+
+| Component | Status |
+|---|---|
+| `MessageSource` model + migration 0008 | ✅ Done |
+| `messages.metadata_json` column (migration 0008) | ✅ Done |
+| `services/chat/prompt_builder.py` — transient prompt assembly | ✅ Done |
+| `POST /chat/conversations` — create conversation (chat_user/system_admin) | ✅ Done |
+| `GET /chat/conversations` — list own conversations | ✅ Done |
+| `GET /chat/conversations/{id}` — owner-only access, 404 for non-owned | ✅ Done |
+| `POST /chat/conversations/{id}/messages` — full RAG answer flow | ✅ Done |
+| `POST /chat/messages/{id}/feedback` — thumbs up/down with privacy guard | ✅ Done |
+| 31 new unit tests (6 prompt builder + 25 chat API) | ✅ Done |
+| `docs/chat-flow.md` | ✅ Done |
+
+**Constraints enforced:**
+- Privacy guard runs before storing user message, retrieval, or LLM call
+- No LLM call when retrieval returns no results — safe refusal stored
+- Full prompt never stored — assembled transiently in `build_chat_prompt()`
+- `messages.metadata_json` contains counts and IDs only — no user text, no chunk text
+- `MessageSource.citation_json` has citation metadata only — no chunk_text, no prompt
+- Only `active` index versions used for user chat
+- Owner-only access to conversations and messages — non-owner gets 404
+- `chat_user` and `system_admin` only — user_admin/faq_manager/knowledge_admin cannot access chat
+- Feedback PII guard — high-severity PII in comment returns 422
+- matched_text never exposed in API responses
+- Fake-local LLM only (no real OpenRouter calls)

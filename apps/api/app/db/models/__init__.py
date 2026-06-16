@@ -10,6 +10,7 @@ from app.db.models.ingestion_run import IngestionRun
 from app.db.models.ingestion_run_document import IngestionRunDocument
 from app.db.models.knowledge_source import KnowledgeSource
 from app.db.models.message import Message
+from app.db.models.message_source import MessageSource
 from app.db.models.parsed_document import ParsedDocument
 from app.db.models.role import Role
 from app.db.models.source_document import SourceDocument
@@ -29,6 +30,7 @@ __all__ = [
     "IngestionRunDocument",
     "KnowledgeSource",
     "Message",
+    "MessageSource",
     "ParsedDocument",
     "Role",
     "SourceDocument",
