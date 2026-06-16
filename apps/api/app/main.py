@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin_embeddings import router as admin_embeddings_router
 from app.api.admin_llm_gateway import router as admin_llm_gateway_router
@@ -18,6 +19,14 @@ app = FastAPI(
     title="ChatHR API",
     description="Secure AI chat for HR employees in Israeli government and civil service.",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(auth_router)
