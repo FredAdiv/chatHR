@@ -312,6 +312,29 @@ Phase 7 constraints:
 - All authorization server-side (knowledge_admin, system_admin)
 - Context filter includes matching type + null/general sources
 
-### Phase 10 — Pending
+### Phase 10 — LLM Gateway + Privacy Guard Foundation ✅
 
-Real embedding provider via LLM Gateway with privacy guard, RAG answer generation with citations, chat endpoint with streaming, OpenRouter integration, frontend UI, SSO.
+| Component | Status |
+|---|---|
+| Privacy Guard (`services/privacy/guard.py`) — email, phone, Israeli ID, employee number, sensitive context | ✅ Done |
+| `LLMProvider` Protocol + `LLMMessage` / `LLMResponse` types | ✅ Done |
+| `FakeLocalLLMProvider` — deterministic, no external calls | ✅ Done |
+| `OpenRouterProvider` skeleton — injectable HTTP client, env-configured | ✅ Done |
+| `generate_with_gateway()` — privacy guard + fallback + usage logging | ✅ Done |
+| `LLMUsageLog` model + Alembic migration 0007 | ✅ Done |
+| `GET /admin/llm-gateway/health` (system_admin only) | ✅ Done |
+| `POST /admin/llm-gateway/test-generate` (system_admin only) | ✅ Done |
+| Unit tests: 56 new tests (348 total) | ✅ Done |
+| `docs/privacy.md` + `docs/llm-gateway.md` | ✅ Done |
+
+**Constraints enforced:**
+- Privacy guard runs before every external provider call — cannot be bypassed
+- High-severity PII (email, phone, Israeli ID) blocks the call
+- Full prompts never stored — `llm_usage_logs` has no prompt/message columns
+- `matched_text` never returned in public API responses
+- OpenRouter not active unless `LLM_PROVIDER=openrouter` is set
+- No real model calls in MVP — fake-local only
+- `system_admin` only for all gateway admin endpoints
+
+**Remaining (Phase 10 Part 2+):**
+Real embedding provider, RAG answer generation with citations, chat endpoint with streaming, OpenRouter integration, frontend UI, SSO.
