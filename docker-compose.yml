@@ -14,6 +14,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
     volumes:
       - ./local-data:/app/local-data
     restart: unless-stopped

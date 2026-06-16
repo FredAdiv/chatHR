@@ -53,6 +53,26 @@ interface ActivationResult {
   message: string;
 }
 
+async function parseApiError(res: Response, fallback: string): Promise<string> {
+  if (res.status === 401) return "אין הרשאה או שההתחברות פגה. התחבר מחדש.";
+  if (res.status === 403) return "אין לך הרשאה לבצע פעולה זו.";
+  if (res.status === 404) return "המשאב המבוקש לא נמצא.";
+  try {
+    const body = await res.json();
+    if (body?.detail && typeof body.detail === "object" && !Array.isArray(body.detail)) {
+      const d = body.detail as Record<string, unknown>;
+      if (typeof d.message === "string") return d.message;
+      if (typeof d.error === "string") return d.error;
+    }
+    if (typeof body?.detail === "string") return body.detail;
+    if (Array.isArray(body?.detail) && body.detail.length > 0) {
+      const first = body.detail[0] as Record<string, unknown>;
+      if (typeof first?.msg === "string") return first.msg;
+    }
+  } catch { /* ignore json parse failure */ }
+  return fallback;
+}
+
 export default function KnowledgeUploadPage() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -209,10 +229,12 @@ export default function KnowledgeUploadPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        let detail: { error?: string; message?: string } | string = res.statusText;
-        try { detail = await res.json(); } catch { /* use statusText */ }
-        const msg = typeof detail === "object" ? detail?.message ?? "שגיאה בעיבוד." : "שגיאה בעיבוד.";
-        setProcessError(msg);
+        const fallback = res.status === 409
+          ? "המסמך כבר עובד או אינו במצב מתאים לעיבוד."
+          : res.status === 422
+          ? "שגיאת אימות בעיבוד המסמך."
+          : "שגיאה בעיבוד המסמך.";
+        setProcessError(await parseApiError(res, fallback));
         return;
       }
       const data: ProcessResult = await res.json();
@@ -236,10 +258,12 @@ export default function KnowledgeUploadPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        let detail: { error?: string; message?: string } | string = res.statusText;
-        try { detail = await res.json(); } catch { /* use statusText */ }
-        const msg = typeof detail === "object" ? detail?.message ?? "שגיאה בבדיקות איכות." : "שגיאה בבדיקות איכות.";
-        setQualityError(msg);
+        const fallback = res.status === 409
+          ? "בדיקות האיכות אינן זמינות במצב הנוכחי של האינדקס."
+          : res.status === 422
+          ? "שגיאת אימות בבדיקות האיכות."
+          : "שגיאה בבדיקות איכות.";
+        setQualityError(await parseApiError(res, fallback));
         return;
       }
       const data: QualityCheckResult = await res.json();
@@ -263,10 +287,12 @@ export default function KnowledgeUploadPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        let detail: { error?: string; message?: string } | string = res.statusText;
-        try { detail = await res.json(); } catch { /* use statusText */ }
-        const msg = typeof detail === "object" ? detail?.message ?? "שגיאה בהפעלת האינדקס." : "שגיאה בהפעלת האינדקס.";
-        setActivationError(msg);
+        const fallback = res.status === 409
+          ? "לא ניתן להפעיל את האינדקס במצבו הנוכחי."
+          : res.status === 422
+          ? "שגיאת אימות בהפעלת האינדקס."
+          : "שגיאה בהפעלת האינדקס.";
+        setActivationError(await parseApiError(res, fallback));
         return;
       }
       const data: ActivationResult = await res.json();

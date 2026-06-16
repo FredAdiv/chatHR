@@ -543,6 +543,38 @@ async def test_process_creates_draft_not_ready_index():
 
 
 @pytest.mark.asyncio
+async def test_process_wrong_status_returns_409_with_message():
+    """409 response for wrong document status must include a 'message' key in detail."""
+    ks = _make_ks()
+    sd = _make_sd(ks.id, status="pending")  # not in _PROCESSABLE_STATUSES
+    db_dep = _db_mock_for_get(sd, ks)
+
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = db_dep
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
+        assert r.status_code == 409
+        body = r.json()
+        assert isinstance(body.get("detail"), dict), "detail must be a dict, not a string"
+        assert "message" in body["detail"], "detail must contain a 'message' key"
+        assert isinstance(body["detail"]["message"], str)
+        assert len(body["detail"]["message"]) > 0
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_process_route_registered():
+    """POST /admin/knowledge/documents/{id}/process must be a registered route (401, not 404)."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post(f"/admin/knowledge/documents/{uuid.uuid4()}/process")
+    assert r.status_code != 404, "Route not registered — got 404"
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_process_failed_parse_returns_422():
     """When parsing fails, the endpoint must return 422 with a safe error message."""
     ks = _make_ks()

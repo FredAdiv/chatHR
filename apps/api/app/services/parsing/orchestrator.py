@@ -26,7 +26,7 @@ from app.services.ingestion.storage import get_bytes
 from app.services.parsing.base import CURRENT_PARSER_VERSION
 from app.services.parsing.dispatcher import parse_document_bytes
 
-_DOWNLOADABLE_STATUSES = {"downloaded", "unchanged"}
+_DOWNLOADABLE_STATUSES = {"downloaded", "unchanged", "processed"}
 
 
 async def parse_and_chunk_source_document(
@@ -49,7 +49,7 @@ async def parse_and_chunk_source_document(
     if source_doc.status not in _DOWNLOADABLE_STATUSES:
         raise ValueError(
             f"SourceDocument {source_document_id} has status '{source_doc.status}' — "
-            "must be 'downloaded' or 'unchanged' to parse"
+            "must be 'downloaded', 'unchanged', or 'processed' to parse"
         )
     if not source_doc.storage_bucket or not source_doc.storage_object_key:
         raise ValueError(

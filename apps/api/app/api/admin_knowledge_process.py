@@ -140,7 +140,13 @@ async def process_document(
     if sd.status not in _PROCESSABLE_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Document status is '{sd.status}' — must be one of {sorted(_PROCESSABLE_STATUSES)} to process.",
+            detail={
+                "error": "wrong_status",
+                "message": (
+                    f"מצב המסמך הוא '{sd.status}' — לא ניתן לעבד מסמך במצב זה. "
+                    f"מצבים מותרים: {', '.join(sorted(_PROCESSABLE_STATUSES))}."
+                ),
+            },
         )
 
     if not sd.storage_bucket or not sd.storage_object_key:
