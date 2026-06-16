@@ -171,6 +171,20 @@ User → Next.js → FastAPI (auth + RBAC check)
 | Unit tests: security (8 tests), auth API (4 tests) | ✅ Done |
 | `docs/auth.md` | ✅ Done |
 
-### Phase 4 — Pending
+### Phase 4 — Route Authorization Tests & FAQ Management Backend ✅
+
+| Component | Status |
+|---|---|
+| Route-level auth tests: /admin/users (chat_user/user_admin/system_admin) | ✅ Done |
+| Route-level auth tests: /dev/db-info (user_admin/system_admin) | ✅ Done |
+| GET /admin/faq with role guard + filters (status, context_type, topic) | ✅ Done |
+| POST /admin/faq — create draft, validate fields, audit | ✅ Done |
+| PATCH /admin/faq/{id} — update, auto-draft on approved edit, version++ | ✅ Done |
+| PATCH /admin/faq/{id}/approve — set approved + approver + timestamp | ✅ Done |
+| PATCH /admin/faq/{id}/archive — set archived, block edits | ✅ Done |
+| 21 new unit tests (admin route auth + FAQ API behavior) | ✅ Done |
+| docs/faq.md | ✅ Done |
+
+### Phase 5 — Pending
 
 Chat endpoint, streaming, FAQ management UI, RAG pipeline, LLM Gateway, privacy guard, SSO.
