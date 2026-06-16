@@ -159,6 +159,33 @@ async def test_query_text_not_stored_in_sql_params():
         assert query not in str(v), "query_text should not appear in SQL parameters"
 
 
+# ── SQL param completeness ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_index_version_id_in_sql_params():
+    """index_version_id must appear as a SQL parameter, not interpolated."""
+    db = _make_db([])
+    vid = uuid.uuid4()
+    await retrieve_chunks(db, "query", vid)
+    params = db.execute.call_args[0][1]
+    assert params.get("index_version_id") == str(vid)
+
+
+@pytest.mark.asyncio
+async def test_context_type_param_and_null_fallback_sql():
+    """When context_type is provided:
+    - it must be passed as a SQL param (not interpolated)
+    - the SQL must include OR ks.context_type IS NULL (null = general sources)
+    """
+    db = _make_db([])
+    await retrieve_chunks(db, "query", uuid.uuid4(), context_type="government_ministries")
+    call_args = db.execute.call_args
+    params = call_args[0][1]
+    sql_text = str(call_args[0][0])
+    assert params.get("context_type") == "government_ministries"
+    assert "ks.context_type IS NULL" in sql_text
+
+
 # ── Citation builder ──────────────────────────────────────────────────────────
 
 def test_build_citation_metadata_all_fields():
