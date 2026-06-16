@@ -366,3 +366,29 @@ Real embedding provider, streaming, OpenRouter integration, frontend UI, SSO.
 - Feedback PII guard — high-severity PII in comment returns 422
 - matched_text never exposed in API responses
 - Fake-local LLM only (no real OpenRouter calls)
+
+### Phase 12 — QA/Hardening Pass ✅
+
+| Component | Status |
+|---|---|
+| Cross-cutting auth/RBAC audit (all 14 routers) | ✅ Done |
+| Anonymous access audit (`/health`, `/ready`) | ✅ Done |
+| Prompt/sensitive text storage audit (LLMUsageLog, metadata_json, audit logs) | ✅ Done |
+| LLM Gateway safety audit (no direct OpenRouter calls, fallback behavior) | ✅ Done |
+| Retrieval and source grounding audit | ✅ Done |
+| Index/ingestion lifecycle audit | ✅ Done |
+| Privacy Guard coverage audit (email, phone, Israeli ID, employee number, sensitive terms) | ✅ Done |
+| Audit and usage log audit | ✅ Done |
+| Migration coherence + model registration audit | ✅ Done |
+| Config/env safety audit (`.env.example`, `docker-compose.yml`) | ✅ Done |
+| Documentation consistency audit | ✅ Done |
+| Fix: `/ready` no longer exposes Python exception class names to anonymous users | ✅ Done |
+| `test_ready_degraded_does_not_expose_exception_class` | ✅ Done |
+| 381/381 tests passing | ✅ Done |
+
+**Defect fixed:**
+- `/ready` endpoint previously returned `"error: <ExceptionClassName>"` for anonymous users, leaking internal infrastructure details. Now returns `"error"` only.
+
+**Commit:** `7776041`
+
+**Recommendation:** Ready for next phase (integration smoke test with Docker Compose, or basic frontend UI, or controlled OpenRouter connection).
