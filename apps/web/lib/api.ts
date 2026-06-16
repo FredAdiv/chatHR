@@ -78,6 +78,14 @@ export interface ChunkViewResponse {
   page_number: number | null;
   chunk_index: number;
   excerpt: string;
+  // FAQ-specific fields (only present when document_type === 'faq')
+  faq_id?: string | null;
+  faq_question?: string | null;
+  faq_answer_excerpt?: string | null;
+  faq_topic?: string | null;
+  faq_applicable_population?: string | null;
+  faq_official_source_links?: string[] | null;
+  faq_updated_at?: string | null;
 }
 
 // ── Admin: Feedback ───────────────────────────────────────────────────────────

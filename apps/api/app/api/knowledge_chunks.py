@@ -37,6 +37,14 @@ class ChunkViewResponse(BaseModel):
     page_number: int | None
     chunk_index: int
     excerpt: str
+    # FAQ-specific fields — only populated when document_type='faq'
+    faq_id: str | None = None
+    faq_question: str | None = None
+    faq_answer_excerpt: str | None = None
+    faq_topic: str | None = None
+    faq_applicable_population: str | None = None
+    faq_official_source_links: list[str] | None = None
+    faq_updated_at: str | None = None
 
 
 @router.get("/chunks/{chunk_id}", response_model=ChunkViewResponse)
@@ -66,6 +74,19 @@ async def get_chunk(
     if len(excerpt) > _EXCERPT_MAX_CHARS:
         excerpt = excerpt[:_EXCERPT_MAX_CHARS] + "..."
 
+    faq_fields: dict = {}
+    if source_doc.document_type == "faq" and isinstance(chunk.metadata_json, dict):
+        meta = chunk.metadata_json
+        faq_fields = {
+            "faq_id": meta.get("faq_id"),
+            "faq_question": meta.get("question"),
+            "faq_answer_excerpt": meta.get("answer_excerpt"),
+            "faq_topic": meta.get("topic"),
+            "faq_applicable_population": meta.get("applicable_population"),
+            "faq_official_source_links": meta.get("official_source_links") or [],
+            "faq_updated_at": meta.get("updated_at"),
+        }
+
     return ChunkViewResponse(
         chunk_id=str(chunk.id),
         source_document_id=str(source_doc.id),
@@ -78,4 +99,5 @@ async def get_chunk(
         page_number=chunk.page_number,
         chunk_index=chunk.chunk_index,
         excerpt=excerpt,
+        **faq_fields,
     )

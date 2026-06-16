@@ -18,6 +18,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   docx: "Word",
   html: "HTML",
   xlsx: "Excel",
+  faq: "שאלות ותשובות (FAQ)",
 };
 
 export default function SourceViewerPage() {
@@ -142,6 +143,44 @@ export default function SourceViewerPage() {
               </tbody>
             </table>
 
+            {/* FAQ additional fields */}
+            {chunk.document_type === "faq" && (
+              <>
+                <hr style={{ border: "none", borderTop: "1px solid #e5e7eb", margin: "0.25rem 0" }} />
+                <div>
+                  <div style={{ fontSize: "0.8rem", fontWeight: "bold", color: "#374151", marginBottom: "0.4rem" }}>
+                    שאלה:
+                  </div>
+                  <div style={{ fontSize: "0.92rem", color: "#1e293b", direction: "rtl", marginBottom: "0.75rem" }}>
+                    {chunk.faq_question}
+                  </div>
+                  {chunk.faq_applicable_population && (
+                    <div style={{ fontSize: "0.82rem", color: "#6b7280", marginBottom: "0.4rem" }}>
+                      <strong>אוכלוסיה רלוונטית:</strong> {chunk.faq_applicable_population}
+                    </div>
+                  )}
+                  {chunk.faq_official_source_links && chunk.faq_official_source_links.length > 0 && (
+                    <div style={{ fontSize: "0.82rem", marginBottom: "0.4rem" }}>
+                      <strong style={{ color: "#374151" }}>מקורות רשמיים:</strong>{" "}
+                      {chunk.faq_official_source_links.map((link, i) => (
+                        <span key={i}>
+                          {i > 0 && ", "}
+                          <a href={link} target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb" }}>
+                            {link}
+                          </a>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {chunk.faq_updated_at && (
+                    <div style={{ fontSize: "0.78rem", color: "#9ca3af" }}>
+                      עודכן: {new Date(chunk.faq_updated_at).toLocaleDateString("he-IL")}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
             {/* Divider */}
             <hr style={{ border: "none", borderTop: "1px solid #e5e7eb", margin: "0.25rem 0" }} />
 
@@ -176,7 +215,9 @@ export default function SourceViewerPage() {
 
             {/* Disclaimer */}
             <p style={{ fontSize: "0.78rem", color: "#9ca3af", margin: 0 }}>
-              קטע זה נלקח ממסמך רשמי שאונדקס במערכת. התוכן מוצג כפי שנשמר במערכת.
+              {chunk.document_type === "faq"
+                ? "תשובה זו מבוססת על FAQ מאושר. אינה מחליפה את הוראות התקשי\"ר או הסכמי שכר."
+                : "קטע זה נלקח ממסמך רשמי שאונדקס במערכת. התוכן מוצג כפי שנשמר במערכת."}
             </p>
           </div>
         )}

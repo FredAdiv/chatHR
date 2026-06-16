@@ -44,8 +44,12 @@ def _db_for_create():
 
 def _db_for_get(item):
     """Mock DB for routes that call db.get(FaqItem, id)."""
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_result.scalars.return_value.all.return_value = []
     mock_db = AsyncMock()
     mock_db.get = AsyncMock(return_value=item)
+    mock_db.execute = AsyncMock(return_value=mock_result)
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()
     mock_db.commit = AsyncMock()

@@ -13,6 +13,7 @@ from app.db.models.faq_item import FaqItem
 from app.db.models.user import User
 from app.db.session import get_db
 from app.services.audit import record_audit_event
+from app.services.faq.retrieval_sync import remove_faq_from_retrieval, sync_faq_to_retrieval
 
 router = APIRouter(prefix="/admin/faq", tags=["faq"])
 
@@ -162,18 +163,23 @@ async def update_faq(
         field in _CONTENT_FIELDS and getattr(item, field) != value
         for field, value in update_data.items()
     )
+    will_revert_to_draft = content_changed and item.status == "approved"
 
     for field, value in update_data.items():
         setattr(item, field, value)
 
     if content_changed:
         item.content_version += 1
-        if item.status == "approved":
+        if will_revert_to_draft:
             item.status = "draft"
             item.approved_by_user_id = None
             item.approved_at = None
 
     item.updated_at = datetime.now(timezone.utc)
+
+    if will_revert_to_draft:
+        await remove_faq_from_retrieval(db, faq_id, actor_user_id=actor.id)
+
     await record_audit_event(
         db, action="faq_updated", actor_user_id=actor.id,
         target_type="faq_item", target_id=str(faq_id),
@@ -199,6 +205,8 @@ async def approve_faq(
     item.approved_by_user_id = actor.id
     item.approved_at = now
     item.updated_at = now
+    await db.flush()
+    await sync_faq_to_retrieval(db, item, actor_user_id=actor.id)
     await record_audit_event(
         db, action="faq_approved", actor_user_id=actor.id,
         target_type="faq_item", target_id=str(faq_id),
@@ -219,6 +227,7 @@ async def archive_faq(
 
     item.status = "archived"
     item.updated_at = datetime.now(timezone.utc)
+    await remove_faq_from_retrieval(db, faq_id, actor_user_id=actor.id)
     await record_audit_event(
         db, action="faq_archived", actor_user_id=actor.id,
         target_type="faq_item", target_id=str(faq_id),
