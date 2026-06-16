@@ -50,8 +50,8 @@ async def ready():
         await conn.execute("SELECT 1")
         await conn.close()
         checks["postgres"] = "ok"
-    except Exception as e:
-        checks["postgres"] = f"error: {type(e).__name__}"
+    except Exception:
+        checks["postgres"] = "error"
 
     try:
         import redis.asyncio as aioredis
@@ -59,8 +59,8 @@ async def ready():
         await r.ping()
         await r.aclose()
         checks["redis"] = "ok"
-    except Exception as e:
-        checks["redis"] = f"error: {type(e).__name__}"
+    except Exception:
+        checks["redis"] = "error"
 
     all_ok = all(v == "ok" for v in checks.values())
     return {
