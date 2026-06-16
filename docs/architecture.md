@@ -133,7 +133,7 @@ User → Next.js → FastAPI (auth + RBAC check)
 
 ## Implementation Status
 
-### Phase 1 — Runnable Skeleton (current)
+### Phase 1 — Runnable Skeleton ✅
 
 | Component | Status |
 |---|---|
@@ -142,6 +142,20 @@ User → Next.js → FastAPI (auth + RBAC check)
 | Next.js app with home page and API health display | ✅ Done |
 | Unit test for `/health` | ✅ Done |
 
-### Phase 2 — Pending
+### Phase 2 — Database Foundation ✅
 
-Authentication, RBAC, chat endpoint, FAQ management, RAG pipeline, LLM Gateway, audit log, privacy guard.
+| Component | Status |
+|---|---|
+| Alembic migration setup | ✅ Done |
+| Initial migration (all 10 core tables) | ✅ Done |
+| SQLAlchemy 2.0 async models | ✅ Done |
+| RBAC role constants and server-side helpers | ✅ Done |
+| Audit log helper (`record_audit_event`) | ✅ Done |
+| Role seed script (idempotent) | ✅ Done |
+| Dev endpoint `GET /dev/db-info` | ✅ Done |
+| Unit tests for RBAC and audit helpers | ✅ Done |
+| `docs/database.md` | ✅ Done |
+
+### Phase 3 — Pending
+
+Authentication (JWT), login flow, RBAC enforcement in routes, chat endpoint, FAQ management UI, RAG pipeline, LLM Gateway, privacy guard.

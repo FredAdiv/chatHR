@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+
+from app.api.dev import router as dev_router
 from app.core.config import settings
 
 app = FastAPI(
@@ -6,6 +8,9 @@ app = FastAPI(
     description="Secure AI chat for HR employees in Israeli government and civil service.",
     version="0.1.0",
 )
+
+# DEV-ONLY router — remove or gate behind feature flag before production
+app.include_router(dev_router)
 
 
 @app.get("/health")

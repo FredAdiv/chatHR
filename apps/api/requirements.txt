@@ -1,6 +1,9 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 asyncpg==0.29.0
+sqlalchemy[asyncio]==2.0.35
+alembic==1.13.3
+psycopg2-binary==2.9.12
 redis[asyncio]==5.0.8
 pydantic==2.9.2
 pydantic-settings==2.5.2

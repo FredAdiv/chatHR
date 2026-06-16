@@ -50,6 +50,16 @@ docker compose down
 docker compose down -v
 ```
 
+## Running Migrations
+
+```bash
+# Inside Docker (recommended):
+docker compose run --rm api alembic upgrade head
+
+# Seed required roles after migration:
+docker compose run --rm api python scripts/seed_roles.py
+```
+
 ## Running Tests
 
 ```bash
@@ -81,13 +91,12 @@ docs/              Project documentation
 
 ## Current Limitations
 
-This is the initial runnable skeleton (MVP Phase 1). The following features are **not yet implemented**:
+MVP Phase 1–2 complete. The following features are **not yet implemented**:
 
-- User authentication and sessions
+- User authentication and sessions (JWT)
 - Chat interface and streaming
 - RAG pipeline (document indexing and retrieval)
-- FAQ management
-- RBAC enforcement
-- Audit log
+- FAQ management UI
+- Full RBAC enforcement in routes (schema + helpers exist)
 - LLM Gateway / OpenRouter integration
 - Privacy guard
