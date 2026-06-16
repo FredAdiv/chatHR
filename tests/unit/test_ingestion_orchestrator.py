@@ -80,10 +80,12 @@ async def test_dry_run_creates_run_and_doc_without_fetching():
     source = _make_source(url="https://www.gov.il/docs")
     db = _make_db(source=source)
 
-    with patch("app.services.ingestion.orchestrator.fetch_url") as mock_fetch:
+    with patch("app.services.ingestion.orchestrator.fetch_url") as mock_fetch, \
+         patch("app.services.ingestion.orchestrator.put_bytes") as mock_put:
         run = await run_ingestion_for_source(db, source.id, "dry_run")
 
     mock_fetch.assert_not_called()
+    mock_put.assert_not_called()
     assert run.mode == "dry_run"
     assert run.status == "completed"
 
@@ -138,7 +140,8 @@ async def test_metadata_only_no_url_records_skipped():
 # ── failed fetch ─────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_failed_fetch_marks_run_failed_doc():
+async def test_failed_fetch_marks_run_failed():
+    """Failed document fetch marks the IngestionRun as failed with a safe error message."""
     from app.services.ingestion.downloader import FetchResult
     source = _make_source(url="https://www.gov.il/docs")
     db = _make_db(source=source)
@@ -156,9 +159,15 @@ async def test_failed_fetch_marks_run_failed_doc():
     with patch("app.services.ingestion.orchestrator.fetch_url", return_value=bad_result):
         run = await run_ingestion_for_source(db, source.id, "download")
 
+    # Run itself is marked failed when a document fetch fails
+    assert run.status == "failed"
+
     run_docs = [x for x in db._added if isinstance(x, IngestionRunDocument)]
-    assert any(rd.action == "failed" for rd in run_docs)
-    assert run.status == "completed"  # run itself completed — the doc action is "failed"
+    failed = [rd for rd in run_docs if rd.action == "failed"]
+    assert len(failed) == 1
+    # Error message is stored safely — it's a short string, not raw content
+    assert "connection refused" in (failed[0].error_message or "")
+    assert len(failed[0].error_message or "") < 2001
 
 
 # ── download mode — new document ──────────────────────────────────────────────

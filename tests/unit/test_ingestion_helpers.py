@@ -146,26 +146,29 @@ def test_content_type_takes_precedence_over_extension():
 from app.services.ingestion.downloader import fetch_url, MAX_BYTES
 
 
-@pytest.mark.asyncio
-async def test_fetch_url_success():
-    import httpx
-    content = b"<html>hello</html>"
+def _make_response(status_code=200, content=b"", headers=None, is_redirect=False):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.is_redirect = is_redirect
+    resp.content = content
+    resp.headers = headers or {}
+    return resp
 
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.headers = {"content-type": "text/html", "etag": '"abc"', "last-modified": "Mon, 16 Jun 2026 00:00:00 GMT"}
 
-    async def _aiter_bytes(chunk_size=None):
-        yield content
-
-    mock_response.aiter_bytes = _aiter_bytes
-    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-    mock_response.__aexit__ = AsyncMock(return_value=False)
-
+def _make_mock_client(responses):
+    """Return a mock AsyncClient whose .get() returns responses in sequence."""
     mock_client = MagicMock()
-    mock_client.stream.return_value = mock_response
+    mock_client.get = AsyncMock(side_effect=responses)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
+    return mock_client
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_success():
+    content = b"<html>hello</html>"
+    resp = _make_response(200, content, {"content-type": "text/html", "etag": '"abc"', "last-modified": "Mon, 16 Jun 2026 00:00:00 GMT"})
+    mock_client = _make_mock_client([resp])
 
     with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
         result = await fetch_url("https://example.gov.il/page")
@@ -193,24 +196,9 @@ async def test_fetch_url_network_error():
 
 @pytest.mark.asyncio
 async def test_fetch_url_max_size_exceeded():
-    import httpx
-
-    large_chunk = b"x" * (MAX_BYTES + 1)
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.headers = {}
-
-    async def _aiter_bytes(chunk_size=None):
-        yield large_chunk
-
-    mock_response.aiter_bytes = _aiter_bytes
-    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-    mock_response.__aexit__ = AsyncMock(return_value=False)
-
-    mock_client = MagicMock()
-    mock_client.stream.return_value = mock_response
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
+    large_content = b"x" * (MAX_BYTES + 1)
+    resp = _make_response(200, large_content, {})
+    mock_client = _make_mock_client([resp])
 
     with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
         result = await fetch_url("https://example.gov.il/huge")
@@ -218,3 +206,40 @@ async def test_fetch_url_max_size_exceeded():
     assert result.content is None
     assert result.error is not None
     assert "exceeded" in result.error.lower() or "size" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_redirect_to_private_ip_is_blocked():
+    """SSRF protection: public URL redirecting to private IP must be blocked before following."""
+    redirect_resp = _make_response(301, b"", {"location": "http://127.0.0.1:8080/internal"}, is_redirect=True)
+    mock_client = _make_mock_client([redirect_resp])
+
+    with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
+        result = await fetch_url("https://example.gov.il/page")
+
+    assert result.error is not None
+    assert "blocked" in result.error.lower() or "not allowed" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_redirect_to_localhost_is_blocked():
+    redirect_resp = _make_response(302, b"", {"location": "http://localhost/admin"}, is_redirect=True)
+    mock_client = _make_mock_client([redirect_resp])
+
+    with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
+        result = await fetch_url("https://example.gov.il/page")
+
+    assert result.error is not None
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_valid_redirect_is_followed():
+    redirect_resp = _make_response(301, b"", {"location": "https://www.gov.il/new-page"}, is_redirect=True)
+    final_resp = _make_response(200, b"<html>new page</html>", {"content-type": "text/html"})
+    mock_client = _make_mock_client([redirect_resp, final_resp])
+
+    with patch("app.services.ingestion.downloader.httpx.AsyncClient", return_value=mock_client):
+        result = await fetch_url("https://www.gov.il/old-page")
+
+    assert result.error is None
+    assert result.content == b"<html>new page</html>"

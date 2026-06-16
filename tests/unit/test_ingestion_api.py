@@ -254,6 +254,55 @@ async def test_get_run_missing_id_returns_404():
 
 # ── GET /admin/ingestion/source-documents ─────────────────────────────────────
 
+# ── GET filter validation ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_runs_invalid_status_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/ingestion/runs?status=invalid_status")
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_list_runs_invalid_mode_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/ingestion/runs?mode=invalid_mode")
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_list_source_documents_invalid_status_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/ingestion/source-documents?status=invalid_status")
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_list_source_documents_document_type_is_freeform():
+    """document_type is a freeform string filter — any value returns 200, not 422."""
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_list([])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/ingestion/source-documents?document_type=any_value")
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
 @pytest.mark.asyncio
 async def test_list_source_documents_returns_200():
     now = datetime.now(timezone.utc)

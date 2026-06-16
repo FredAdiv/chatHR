@@ -1,15 +1,19 @@
-"""Safe HTTP fetch skeleton for document ingestion.
+"""Safe HTTP fetch for document ingestion.
 
 Limits:
 - Max response size: 20 MB (documented)
-- Max redirects: 5
+- Max redirects: 5, followed manually with URL re-validation (SSRF protection)
 - Timeout: 30 seconds
 - No credentials sent
-- Does not fetch private/internal addresses (caller must validate URL first)
+- Each redirect target is validated against URL safety rules before following,
+  preventing SSRF via open redirect from a public URL to a private/internal address.
 """
 from dataclasses import dataclass
+from urllib.parse import urljoin
 
 import httpx
+
+from app.services.ingestion.url_utils import validate_url
 
 MAX_BYTES = 20 * 1024 * 1024  # 20 MB — documented ingestion limit
 _MAX_REDIRECTS = 5
@@ -30,48 +34,75 @@ class FetchResult:
 async def fetch_url(url: str) -> FetchResult:
     """
     Fetch a URL and return a FetchResult.
+    - Redirects are followed manually: each redirect target is validated with validate_url()
+      before following, preventing SSRF via open redirect to private/internal addresses.
+    - Response body is buffered up to MAX_BYTES (20 MB); larger responses return an error.
+    - Up to _MAX_REDIRECTS redirects are followed.
     - No credentials or auth headers are sent.
-    - Response body is read up to MAX_BYTES (20 MB); larger responses return an error.
-    - Up to 5 redirects are followed.
-    - Caller must validate the URL (scheme and host) before calling this function.
+    - Caller must validate the initial URL before calling this function.
     """
     try:
         async with httpx.AsyncClient(
-            follow_redirects=True,
-            max_redirects=_MAX_REDIRECTS,
+            follow_redirects=False,
             timeout=_TIMEOUT,
         ) as client:
-            async with client.stream("GET", url) as response:
-                headers = response.headers
-                content_type = headers.get("content-type")
-                etag = headers.get("etag")
-                last_modified = headers.get("last-modified")
+            current_url = url
+            hops = 0
 
-                chunks: list[bytes] = []
-                total = 0
-                async for chunk in response.aiter_bytes(chunk_size=65_536):
-                    total += len(chunk)
-                    if total > MAX_BYTES:
+            while True:
+                response = await client.get(current_url)
+
+                if response.is_redirect:
+                    if hops >= _MAX_REDIRECTS:
                         return FetchResult(
                             url=url,
                             status_code=response.status_code,
-                            content_type=content_type,
-                            etag=etag,
-                            last_modified=last_modified,
+                            content_type=None,
+                            etag=None,
+                            last_modified=None,
                             content=None,
-                            error=f"Response exceeded maximum allowed size of {MAX_BYTES} bytes",
+                            error=f"Too many redirects (max {_MAX_REDIRECTS})",
                         )
-                    chunks.append(chunk)
+                    hops += 1
+                    location = response.headers.get("location", "")
+                    next_url = urljoin(current_url, location)
+                    try:
+                        validate_url(next_url)
+                    except ValueError as exc:
+                        return FetchResult(
+                            url=url,
+                            status_code=response.status_code,
+                            content_type=None,
+                            etag=None,
+                            last_modified=None,
+                            content=None,
+                            error=f"Redirect to blocked target: {exc}",
+                        )
+                    current_url = next_url
+                    continue
 
+                # Final (non-redirect) response — buffer body with size check
+                content = response.content
+                if len(content) > MAX_BYTES:
+                    return FetchResult(
+                        url=url,
+                        status_code=response.status_code,
+                        content_type=response.headers.get("content-type"),
+                        etag=response.headers.get("etag"),
+                        last_modified=response.headers.get("last-modified"),
+                        content=None,
+                        error=f"Response exceeded maximum allowed size of {MAX_BYTES} bytes",
+                    )
                 return FetchResult(
                     url=url,
                     status_code=response.status_code,
-                    content_type=content_type,
-                    etag=etag,
-                    last_modified=last_modified,
-                    content=b"".join(chunks),
+                    content_type=response.headers.get("content-type"),
+                    etag=response.headers.get("etag"),
+                    last_modified=response.headers.get("last-modified"),
+                    content=content,
                     error=None,
                 )
+
     except Exception as exc:
         return FetchResult(
             url=url,

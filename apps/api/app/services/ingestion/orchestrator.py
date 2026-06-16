@@ -78,7 +78,13 @@ async def run_ingestion_for_source(
 
     try:
         run_docs = await _process_source(db, run, source, mode, now)
-        run.status = "completed"
+        # Mark run failed if any document fetch failed; skipped docs keep run as completed
+        failed_docs = [rd for rd in run_docs if rd.action == "failed"]
+        if failed_docs:
+            run.status = "failed"
+            run.error_message = failed_docs[0].error_message
+        else:
+            run.status = "completed"
         run.completed_at = datetime.now(timezone.utc)
         action_counts: dict[str, int] = {}
         for rd in run_docs:
