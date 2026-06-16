@@ -17,11 +17,15 @@ class Settings(BaseSettings):
     minio_bucket_documents: str = "chathr-documents"
     minio_secure: bool = False
 
-    # Embedding provider — fake-local for MVP/dev/tests only
-    # Real providers must pass through the LLM Gateway and privacy guard (future work)
+    # Embedding provider
+    # fake-local: deterministic SHA-256 hash vectors, no network, dev/tests only
+    # openrouter: real semantic embeddings via OpenRouter API
     embedding_provider: str = "fake-local"
-    embedding_dimension: int = 16
-    embedding_model: str = "fake-local-v1"
+    embedding_dimension: int = 16           # used by fake-local only
+    embedding_model: str = "fake-local-v1"  # used by fake-local only
+    openrouter_embedding_model: str = "openai/text-embedding-3-small"
+    # Set to false in production to prevent activating a fake-local index
+    embedding_fake_local_allowed: bool = True
 
     # LLM Gateway — all model calls must go through the gateway with privacy guard
     # fake-local: no external calls, deterministic, safe for tests/dev

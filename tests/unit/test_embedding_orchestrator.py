@@ -19,6 +19,9 @@ def _make_index_version(status="building"):
     iv = MagicMock(spec=IndexVersion)
     iv.id = uuid.uuid4()
     iv.status = status
+    iv.embedding_model = "fake-local-v1"
+    iv.embedding_provider = "fake-local"
+    iv.embedding_dimensions = 16
     return iv
 
 
@@ -203,13 +206,10 @@ async def test_provider_failure_records_failed_embedding():
     chunk = _make_chunk()
     db = _make_db(index_version=iv, chunks=[chunk])
 
-    from app.services.embeddings.fake_provider import FakeLocalProvider
+    async def _failing_embed(texts, **kwargs):
+        raise RuntimeError("simulated provider failure")
 
-    class FailingProvider(FakeLocalProvider):
-        def embed_texts(self, texts):
-            raise RuntimeError("simulated provider failure")
-
-    with patch("app.services.embeddings.orchestrator.get_embedding_provider", return_value=FailingProvider()):
+    with patch("app.services.embeddings.orchestrator.embed_with_gateway", side_effect=_failing_embed):
         result = await embed_chunks_for_index_version(db, iv.id)
 
     assert result.failed_count == 1
@@ -227,13 +227,10 @@ async def test_provider_failure_error_message_no_chunk_text():
     chunk = _make_chunk(chunk_text="Confidential employee data")
     db = _make_db(index_version=iv, chunks=[chunk])
 
-    from app.services.embeddings.fake_provider import FakeLocalProvider
+    async def _failing_embed(texts, **kwargs):
+        raise RuntimeError("provider error")
 
-    class FailingProvider(FakeLocalProvider):
-        def embed_texts(self, texts):
-            raise RuntimeError("provider error")
-
-    with patch("app.services.embeddings.orchestrator.get_embedding_provider", return_value=FailingProvider()):
+    with patch("app.services.embeddings.orchestrator.embed_with_gateway", side_effect=_failing_embed):
         await embed_chunks_for_index_version(db, iv.id)
 
     failed = [x for x in db._added if isinstance(x, ChunkEmbedding)]

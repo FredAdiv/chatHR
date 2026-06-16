@@ -1,8 +1,7 @@
 """Retrieval service over ChunkEmbedding + DocumentChunk + SourceDocument + KnowledgeSource.
 
-Admin/debug retrieval only — no LLM answer generation.
-Uses the configured embedding provider (fake-local in MVP).
-Does not call external services.
+Query embedding is generated using the active IndexVersion's embedding provider/model,
+so that queries are always compared against compatible vectors.
 Query text is never stored in audit metadata.
 """
 from __future__ import annotations
@@ -10,10 +9,11 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.embeddings.factory import get_embedding_provider
+from app.db.models.index_version import IndexVersion
+from app.services.embeddings.gateway import embed_with_gateway
 from app.services.retrieval.citation import CitationMetadata, build_citation_metadata
 
 # Allowed context_type values matching knowledge_sources.context_type constraint
@@ -120,14 +120,30 @@ async def retrieve_chunks(
             f"Allowed: {sorted(ALLOWED_CONTEXT_TYPES)}"
         )
 
-    provider = get_embedding_provider()
-    query_vector = provider.embed_texts([query_text])[0]
+    # Load IndexVersion to determine which embedding provider/model to use for the query.
+    # The query vector MUST use the same provider+model as the stored chunk embeddings;
+    # mismatched dimensions produce silently wrong similarity scores.
+    iv = await db.get(IndexVersion, index_version_id)
+    if iv is None:
+        raise ValueError(f"IndexVersion {index_version_id} not found")
+
+    from app.core.config import settings as _settings
+    emb_provider = iv.embedding_provider or _settings.embedding_provider
+    emb_model = iv.embedding_model
+
+    query_vector = (
+        await embed_with_gateway(
+            [query_text],
+            embedding_provider=emb_provider,
+            embedding_model=emb_model,
+        )
+    )[0]
     vector_str = "[" + ",".join(str(f) for f in query_vector) + "]"
 
     params = {
         "query_vector": vector_str,
         "index_version_id": str(index_version_id),
-        "embedding_model": provider.model_name,
+        "embedding_model": emb_model,
         "limit": limit,
     }
 

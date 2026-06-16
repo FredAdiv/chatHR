@@ -1,7 +1,8 @@
 """Embedding generation orchestration.
 
 Generates ChunkEmbedding records for DocumentChunk rows associated with a
-building IndexVersion. Does not activate the index or call external services.
+building IndexVersion. All embedding calls go through embed_with_gateway().
+Does not activate the index.
 """
 import uuid
 from datetime import datetime, timezone
@@ -14,7 +15,7 @@ from app.db.models.document_chunk import DocumentChunk
 from app.db.models.index_version import IndexVersion
 from app.services.audit import record_audit_event
 from app.services.embeddings.base import EmbeddingGenerationResult
-from app.services.embeddings.factory import get_embedding_provider
+from app.services.embeddings.gateway import embed_with_gateway, get_embedding_dimension
 
 _MUTABLE_STATUS = "building"
 
@@ -50,7 +51,11 @@ async def embed_chunks_for_index_version(
             "embeddings can only be generated for 'building' index versions"
         )
 
-    provider = get_embedding_provider()
+    # Use the embedding config recorded on the IndexVersion, falling back to settings
+    from app.core.config import settings as _settings
+    emb_provider = index_version.embedding_provider or _settings.embedding_provider
+    emb_model = index_version.embedding_model
+    emb_dimension = index_version.embedding_dimensions or get_embedding_dimension(emb_provider)
 
     q = select(DocumentChunk)
     if parsed_document_id is not None:
@@ -69,7 +74,7 @@ async def embed_chunks_for_index_version(
         dup_result = await db.execute(
             select(ChunkEmbedding).where(
                 ChunkEmbedding.document_chunk_id == chunk.id,
-                ChunkEmbedding.embedding_model == provider.model_name,
+                ChunkEmbedding.embedding_model == emb_model,
                 ChunkEmbedding.content_hash == chunk.chunk_hash,
                 ChunkEmbedding.index_version_id == index_version_id,
             )
@@ -79,7 +84,11 @@ async def embed_chunks_for_index_version(
             continue
 
         try:
-            vectors = provider.embed_texts([chunk.chunk_text])
+            vectors = await embed_with_gateway(
+                [chunk.chunk_text],
+                embedding_provider=emb_provider,
+                embedding_model=emb_model,
+            )
             vector = vectors[0]
             ce = ChunkEmbedding(
                 id=uuid.uuid4(),
@@ -87,8 +96,8 @@ async def embed_chunks_for_index_version(
                 source_document_id=chunk.source_document_id,
                 parsed_document_id=chunk.parsed_document_id,
                 index_version_id=index_version_id,
-                embedding_model=provider.model_name,
-                embedding_dimension=provider.dimension,
+                embedding_model=emb_model,
+                embedding_dimension=emb_dimension,
                 embedding=vector,
                 content_hash=chunk.chunk_hash,
                 status="embedded",
@@ -106,9 +115,9 @@ async def embed_chunks_for_index_version(
                 source_document_id=chunk.source_document_id,
                 parsed_document_id=chunk.parsed_document_id,
                 index_version_id=index_version_id,
-                embedding_model=provider.model_name,
-                embedding_dimension=provider.dimension,
-                embedding=[0.0] * provider.dimension,
+                embedding_model=emb_model,
+                embedding_dimension=emb_dimension,
+                embedding=[0.0] * emb_dimension,
                 content_hash=chunk.chunk_hash,
                 status="failed",
                 error_message=error_msg,
@@ -128,8 +137,9 @@ async def embed_chunks_for_index_version(
         target_type="index_version",
         target_id=str(index_version_id),
         metadata_json={
-            "embedding_model": provider.model_name,
-            "embedding_dimension": provider.dimension,
+            "embedding_provider": emb_provider,
+            "embedding_model": emb_model,
+            "embedding_dimension": emb_dimension,
             "chunks_found": len(chunks),
             "embedded_count": embedded_count,
             "skipped_count": skipped_count,
@@ -141,8 +151,8 @@ async def embed_chunks_for_index_version(
 
     return EmbeddingGenerationResult(
         index_version_id=index_version_id,
-        embedding_model=provider.model_name,
-        embedding_dimension=provider.dimension,
+        embedding_model=emb_model,
+        embedding_dimension=emb_dimension,
         chunks_found=len(chunks),
         embedded_count=embedded_count,
         skipped_count=skipped_count,

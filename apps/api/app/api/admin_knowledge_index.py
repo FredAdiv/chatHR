@@ -28,6 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_any_role
+from app.core.config import settings
 from app.core.roles import RoleName
 from app.db.models.chunk_embedding import ChunkEmbedding
 from app.db.models.document_chunk import DocumentChunk
@@ -257,6 +258,29 @@ async def _run_quality_checks(
         passed=chunk_ok,
         message=msg,
     ))
+
+    # Check 9: Fake embeddings not allowed in production
+    # If embedding_fake_local_allowed=False, the index must not use fake-local provider.
+    provider_used = iv.embedding_provider or "fake-local"
+    if not settings.embedding_fake_local_allowed and provider_used == "fake-local":
+        results.append(CheckResult(
+            name="embedding_not_fake_in_production",
+            passed=False,
+            message=(
+                "This index uses fake-local embeddings which are not suitable for production retrieval. "
+                "Set EMBEDDING_PROVIDER=openrouter and rebuild the index with real embeddings."
+            ),
+        ))
+    else:
+        results.append(CheckResult(
+            name="embedding_not_fake_in_production",
+            passed=True,
+            message=(
+                "Fake-local embeddings allowed (dev/test mode)."
+                if provider_used == "fake-local"
+                else f"Real embedding provider in use: {provider_used}."
+            ),
+        ))
 
     return results
 

@@ -20,7 +20,7 @@ from app.db.models.document_chunk import DocumentChunk
 from app.db.models.index_version import IndexVersion
 from app.db.models.user import User
 from app.db.session import get_db
-from app.services.embeddings.factory import get_embedding_provider
+from app.services.embeddings.gateway import embed_with_gateway
 from app.services.embeddings.orchestrator import embed_chunks_for_index_version
 
 router = APIRouter(prefix="/admin/embeddings", tags=["embeddings"])
@@ -173,8 +173,21 @@ async def search_embeddings(
     No external service calls are made.
     Raw embedding vectors are not returned.
     """
-    provider = get_embedding_provider()
-    query_vector = provider.embed_texts([body.query_text])[0]
+    from app.db.models.index_version import IndexVersion
+    from app.core.config import settings as _settings
+    iv = await db.get(IndexVersion, body.index_version_id)
+    if iv is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Index version not found.")
+    emb_provider = iv.embedding_provider or _settings.embedding_provider
+    emb_model = iv.embedding_model
+
+    query_vector = (
+        await embed_with_gateway(
+            [body.query_text],
+            embedding_provider=emb_provider,
+            embedding_model=emb_model,
+        )
+    )[0]
 
     # pgvector cosine distance via raw SQL for maximum compatibility
     stmt = text("""
@@ -199,7 +212,7 @@ async def search_embeddings(
         {
             "query_vector": vector_str,
             "index_version_id": str(body.index_version_id),
-            "embedding_model": provider.model_name,
+            "embedding_model": emb_model,
             "limit": body.limit,
         },
     )

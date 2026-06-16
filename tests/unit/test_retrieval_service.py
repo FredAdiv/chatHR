@@ -32,9 +32,16 @@ def _make_row(distance=0.2, authority_level=3, chunk_index=0):
 
 
 def _make_db(rows):
+    from app.db.models.index_version import IndexVersion
+    fake_iv = MagicMock(spec=IndexVersion)
+    fake_iv.embedding_provider = "fake-local"
+    fake_iv.embedding_model = "fake-local-v1"
+    fake_iv.embedding_dimensions = 16
+
     mock_result = MagicMock()
     mock_result.__iter__ = MagicMock(return_value=iter(rows))
     mock_db = AsyncMock()
+    mock_db.get = AsyncMock(return_value=fake_iv)
     mock_db.execute = AsyncMock(return_value=mock_result)
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()

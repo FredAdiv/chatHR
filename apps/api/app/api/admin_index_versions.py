@@ -8,8 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_any_role
+from app.core.config import settings
 from app.core.roles import RoleName
 from app.db.models.index_version import IndexVersion
+from app.services.embeddings.gateway import get_embedding_dimension
 from app.db.models.user import User
 from app.db.session import get_db
 from app.services.audit import record_audit_event
@@ -26,11 +28,12 @@ _ARCHIVABLE_STATUSES = {"draft", "ready", "quality_check_failed"}
 
 class IndexVersionCreate(BaseModel):
     version_label: str
-    embedding_model: str
+    # embedding_model is optional — defaults to current provider's configured model
+    embedding_model: str | None = None
     # Must not contain prompts, secrets, tokens, PII, or raw source content
     metadata_json: dict | None = None
 
-    @field_validator("version_label", "embedding_model")
+    @field_validator("version_label")
     @classmethod
     def not_empty(cls, v: str) -> str:
         if not v.strip():
@@ -43,24 +46,34 @@ class IndexVersionResponse(BaseModel):
     version_label: str
     status: str
     embedding_model: str
+    embedding_provider: str | None
+    embedding_dimensions: int | None
     created_by_user_id: str | None
     activated_by_user_id: str | None
     created_at: str | None
     activated_at: str | None
     metadata_json: dict | None
+    embedding_warning: str | None = None
 
 
 def _iv_dict(iv: IndexVersion) -> dict:
+    provider = iv.embedding_provider or "fake-local"
+    warning = None
+    if provider == "fake-local":
+        warning = "fake-local embeddings — retrieval is not semantically meaningful"
     return {
         "id": str(iv.id),
         "version_label": iv.version_label,
         "status": iv.status,
         "embedding_model": iv.embedding_model,
+        "embedding_provider": iv.embedding_provider,
+        "embedding_dimensions": iv.embedding_dimensions,
         "created_by_user_id": str(iv.created_by_user_id) if iv.created_by_user_id else None,
         "activated_by_user_id": str(iv.activated_by_user_id) if iv.activated_by_user_id else None,
         "created_at": iv.created_at.isoformat() if iv.created_at else None,
         "activated_at": iv.activated_at.isoformat() if iv.activated_at else None,
         "metadata_json": iv.metadata_json,
+        "embedding_warning": warning,
     }
 
 
@@ -84,12 +97,24 @@ async def create_index_version(
     actor: User = Depends(require_any_role(_IV_ROLES)),
 ):
     now = datetime.now(timezone.utc)
+    # Resolve embedding metadata from current settings/provider
+    emb_provider = settings.embedding_provider
+    emb_dimensions = get_embedding_dimension(emb_provider)
+    if req.embedding_model:
+        emb_model = req.embedding_model
+    elif emb_provider == "fake-local":
+        emb_model = settings.embedding_model
+    else:
+        emb_model = settings.openrouter_embedding_model
+
     # Status is always "building" on create — clients cannot set it directly
     iv = IndexVersion(
         id=uuid.uuid4(),
         version_label=req.version_label,
         status="building",
-        embedding_model=req.embedding_model,
+        embedding_model=emb_model,
+        embedding_provider=emb_provider,
+        embedding_dimensions=emb_dimensions,
         created_by_user_id=actor.id,
         metadata_json=req.metadata_json,
         created_at=now,
