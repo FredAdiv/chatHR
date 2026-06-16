@@ -11,6 +11,7 @@ from app.api.admin_parsing import router as admin_parsing_router
 from app.api.admin_knowledge_sources import router as admin_knowledge_sources_router
 from app.api.admin_knowledge_upload import router as admin_knowledge_upload_router
 from app.api.admin_knowledge_process import router as admin_knowledge_process_router
+from app.api.admin_knowledge_index import router as admin_knowledge_index_router
 from app.api.admin_users import router as admin_users_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
@@ -37,6 +38,7 @@ app.include_router(admin_faq_router)
 app.include_router(admin_knowledge_sources_router)
 app.include_router(admin_knowledge_upload_router)
 app.include_router(admin_knowledge_process_router)
+app.include_router(admin_knowledge_index_router)
 app.include_router(admin_index_versions_router)
 app.include_router(admin_ingestion_router)
 app.include_router(admin_parsing_router)

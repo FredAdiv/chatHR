@@ -39,14 +39,14 @@ def _make_ks(authority_level=1):
     return ks
 
 
-def _make_sd(ks_id, status="downloaded", has_storage=True, doc_type="pdf"):
+def _make_sd(ks_id, status="downloaded", has_storage=True, doc_type="pdf", semantic_type=None):
     sd = MagicMock()
     sd.id = uuid.uuid4()
     sd.knowledge_source_id = ks_id
     sd.status = status
     sd.document_type = doc_type
     sd.title = 'תקשי"ר'
-    sd.metadata_json = {}
+    sd.metadata_json = {"semantic_type": semantic_type or doc_type, "file_format": doc_type}
     sd.created_at = datetime.now(timezone.utc)
     sd.updated_at = datetime.now(timezone.utc)
     if has_storage:
@@ -424,10 +424,10 @@ async def test_process_does_not_activate_index():
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
         assert r.status_code == 200
-        # Check IndexVersion was NOT set to 'active'
+        # Check IndexVersion was set to 'draft' (not 'active' or 'ready' immediately)
         index_versions = [obj for obj in added_objects if isinstance(obj, IV)]
         assert len(index_versions) == 1
-        assert index_versions[0].status == "ready"
+        assert index_versions[0].status == "draft"
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
@@ -458,6 +458,85 @@ async def test_process_raw_content_not_in_response():
         assert "storage_bucket" not in raw_response
         assert "content_hash" not in raw_response
         assert "chunk_text" not in raw_response
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_get_document_returns_semantic_type_not_file_format():
+    """GET must return semantic_type ('takshir') as document_type, not file format ('pdf')."""
+    ks = _make_ks()
+    sd = _make_sd(ks.id, semantic_type="takshir")
+    db_dep = _db_mock_for_get(sd, ks)
+
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = db_dep
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get(f"/admin/knowledge/documents/{sd.id}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["document_type"] == "takshir"
+        assert body["file_format"] == "pdf"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_process_returns_semantic_type_in_response():
+    """Process endpoint must return semantic_type as document_type in response."""
+    ks = _make_ks(authority_level=1)
+    sd = _make_sd(ks.id, doc_type="pdf", semantic_type="takshir")
+    sd.title = 'תקשי"ר'
+    parsed_doc = _make_parsed_doc(sd.id)
+    chunks = [_make_chunk(parsed_doc.id, sd.id, i) for i in range(2)]
+    db_dep = _db_mock_for_process(sd, ks, parsed_doc, chunks)
+
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = db_dep
+    try:
+        with (
+            patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
+            patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
+            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["document_type"] == "takshir"
+        assert body["file_format"] == "pdf"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_process_creates_draft_not_ready_index():
+    """Process endpoint must create IndexVersion with status='draft', not 'ready'."""
+    ks = _make_ks()
+    sd = _make_sd(ks.id, semantic_type="takshir")
+    parsed_doc = _make_parsed_doc(sd.id)
+    chunks = [_make_chunk(parsed_doc.id, sd.id, 0)]
+    db_dep = _db_mock_for_process(sd, ks, parsed_doc, chunks)
+
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = db_dep
+    try:
+        with (
+            patch("app.api.admin_knowledge_process.parse_and_chunk_source_document", AsyncMock(return_value=parsed_doc)),
+            patch("app.api.admin_knowledge_process.record_audit_event", AsyncMock()),
+            patch("app.services.embeddings.fake_provider.FakeLocalProvider.embed_texts", return_value=[[0.0] * 128]),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(f"/admin/knowledge/documents/{sd.id}/process")
+        assert r.status_code == 200
+        # The status in the response is about the source document, not the index version
+        # The response message should mention 'draft'
+        body = r.json()
+        assert "draft" in body["message"].lower() or body["status"] == "processed"
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)

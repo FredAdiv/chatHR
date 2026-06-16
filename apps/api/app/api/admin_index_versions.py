@@ -18,10 +18,10 @@ router = APIRouter(prefix="/admin/index-versions", tags=["index-versions"])
 
 _IV_ROLES = [RoleName.KNOWLEDGE_ADMIN, RoleName.SYSTEM_ADMIN]
 
-IndexVersionStatus = Literal["building", "quality_check_failed", "ready", "active", "archived"]
+IndexVersionStatus = Literal["building", "draft", "quality_check_failed", "ready", "active", "archived"]
 
 # Allowed statuses for manual archive (active version is replaced via activate, not archived directly)
-_ARCHIVABLE_STATUSES = {"ready", "quality_check_failed"}
+_ARCHIVABLE_STATUSES = {"draft", "ready", "quality_check_failed"}
 
 
 class IndexVersionCreate(BaseModel):
@@ -117,10 +117,10 @@ async def mark_index_version_ready(
     iv = await db.get(IndexVersion, version_id)
     if not iv:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Index version not found")
-    if iv.status != "building":
+    if iv.status not in {"building", "draft"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Only building index versions can be marked ready (current status: {iv.status})",
+            detail=f"Only building or draft index versions can be marked ready (current status: {iv.status})",
         )
     iv.status = "ready"
     await record_audit_event(
@@ -143,7 +143,7 @@ async def mark_index_version_quality_failed(
     iv = await db.get(IndexVersion, version_id)
     if not iv:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Index version not found")
-    _QUALITY_FAIL_ALLOWED = {"building", "ready"}
+    _QUALITY_FAIL_ALLOWED = {"building", "draft", "ready"}
     if iv.status not in _QUALITY_FAIL_ALLOWED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

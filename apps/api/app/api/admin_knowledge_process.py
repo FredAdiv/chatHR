@@ -49,6 +49,7 @@ class DocumentStatusResponse(BaseModel):
     document_id: str
     title: str | None
     document_type: str | None
+    file_format: str | None
     authority_level: int | None
     status: str
     created_at: str
@@ -60,6 +61,7 @@ class ProcessResponse(BaseModel):
     document_id: str
     title: str | None
     document_type: str | None
+    file_format: str | None
     authority_level: int | None
     status: str
     index_version_id: str
@@ -93,10 +95,12 @@ async def get_document_status(
     if sd.metadata_json and "index_version_id" in sd.metadata_json:
         index_version_id = sd.metadata_json["index_version_id"]
 
+    meta = sd.metadata_json or {}
     return DocumentStatusResponse(
         document_id=str(sd.id),
         title=sd.title,
-        document_type=sd.document_type,
+        document_type=meta.get("semantic_type") or sd.document_type,
+        file_format=meta.get("file_format") or sd.document_type,
         authority_level=authority_level,
         status=sd.status,
         created_at=sd.created_at.isoformat(),
@@ -148,6 +152,7 @@ async def process_document(
     ks = await db.get(KnowledgeSource, sd.knowledge_source_id) if sd.knowledge_source_id else None
     authority_level = ks.authority_level if ks else None
 
+    start_meta = sd.metadata_json or {}
     await record_audit_event(
         db,
         action="knowledge_document_processing_started",
@@ -155,7 +160,8 @@ async def process_document(
         target_type="source_document",
         target_id=str(sd.id),
         metadata_json={
-            "document_type": sd.document_type,
+            "document_type": start_meta.get("semantic_type") or sd.document_type,
+            "file_format": start_meta.get("file_format") or sd.document_type,
             "authority_level": authority_level,
         },
     )
@@ -232,8 +238,8 @@ async def process_document(
         ))
     await db.flush()
 
-    # ── Step 4: Mark IndexVersion as ready (NOT active) ────────────────────────
-    iv.status = "ready"
+    # ── Step 4: Mark IndexVersion as draft (awaiting quality check) ───────────
+    iv.status = "draft"
     await db.flush()
 
     # ── Step 5: Update SourceDocument status to 'processed' ───────────────────
@@ -246,6 +252,10 @@ async def process_document(
     sd.updated_at = now
     await db.flush()
 
+    sd_meta = sd.metadata_json or {}
+    semantic_type = sd_meta.get("semantic_type") or sd.document_type
+    file_format = sd_meta.get("file_format") or sd.document_type
+
     await record_audit_event(
         db,
         action="knowledge_document_processed",
@@ -256,9 +266,10 @@ async def process_document(
             "index_version_id": str(iv.id),
             "index_version_label": version_label,
             "chunk_count": len(chunks),
-            "document_type": sd.document_type,
+            "document_type": semantic_type,
+            "file_format": file_format,
             "authority_level": authority_level,
-            "index_status": "ready",
+            "index_status": "draft",
         },
     )
     await db.commit()
@@ -266,7 +277,8 @@ async def process_document(
     return ProcessResponse(
         document_id=str(sd.id),
         title=sd.title,
-        document_type=sd.document_type,
+        document_type=semantic_type,
+        file_format=file_format,
         authority_level=authority_level,
         status="processed",
         index_version_id=str(iv.id),
@@ -274,8 +286,8 @@ async def process_document(
         chunk_count=len(chunks),
         message=(
             f"המסמך עובד בהצלחה — נוצרו {len(chunks)} קטעים ואינדקס טיוטה '{version_label}'. "
-            "האינדקס אינו פעיל עדיין ולא יוצג למשתמשים. "
-            "לפרסום נדרש שלב הפעלה נפרד."
+            "האינדקס נמצא במצב 'draft' וממתין לבדיקות איכות לפני פרסום. "
+            "לפרסום נדרש שלב בדיקות איכות ואישור נפרד."
         ),
     )
 

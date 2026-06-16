@@ -29,6 +29,30 @@ interface ProcessResult {
   message: string;
 }
 
+interface QualityCheck {
+  name: string;
+  passed: boolean;
+  message: string;
+}
+
+interface QualityCheckResult {
+  index_version_id: string;
+  overall_passed: boolean;
+  status: string;
+  checks: QualityCheck[];
+  checked_at: string;
+  chunk_count: number;
+}
+
+interface ActivationResult {
+  index_version_id: string;
+  status: string;
+  version_label: string;
+  activated_at: string;
+  previous_active_id: string | null;
+  message: string;
+}
+
 export default function KnowledgeUploadPage() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -52,6 +76,14 @@ export default function KnowledgeUploadPage() {
   const [processing, setProcessing] = useState(false);
   const [processResult, setProcessResult] = useState<ProcessResult | null>(null);
   const [processError, setProcessError] = useState<string | null>(null);
+
+  const [qualityChecking, setQualityChecking] = useState(false);
+  const [qualityResult, setQualityResult] = useState<QualityCheckResult | null>(null);
+  const [qualityError, setQualityError] = useState<string | null>(null);
+
+  const [activating, setActivating] = useState(false);
+  const [activationResult, setActivationResult] = useState<ActivationResult | null>(null);
+  const [activationError, setActivationError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -189,6 +221,60 @@ export default function KnowledgeUploadPage() {
       setProcessError("שגיאת רשת. אנא בדוק את החיבור ונסה שנית.");
     } finally {
       setProcessing(false);
+    }
+  }
+
+  async function handleQualityCheck(indexVersionId: string) {
+    if (!token) return;
+    setQualityChecking(true);
+    setQualityResult(null);
+    setQualityError(null);
+    try {
+      const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+      const res = await fetch(`${base}/admin/knowledge/index-versions/${indexVersionId}/quality-check`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        let detail: { error?: string; message?: string } | string = res.statusText;
+        try { detail = await res.json(); } catch { /* use statusText */ }
+        const msg = typeof detail === "object" ? detail?.message ?? "שגיאה בבדיקות איכות." : "שגיאה בבדיקות איכות.";
+        setQualityError(msg);
+        return;
+      }
+      const data: QualityCheckResult = await res.json();
+      setQualityResult(data);
+    } catch {
+      setQualityError("שגיאת רשת. אנא בדוק את החיבור ונסה שנית.");
+    } finally {
+      setQualityChecking(false);
+    }
+  }
+
+  async function handleActivate(indexVersionId: string) {
+    if (!token) return;
+    setActivating(true);
+    setActivationResult(null);
+    setActivationError(null);
+    try {
+      const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+      const res = await fetch(`${base}/admin/knowledge/index-versions/${indexVersionId}/activate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        let detail: { error?: string; message?: string } | string = res.statusText;
+        try { detail = await res.json(); } catch { /* use statusText */ }
+        const msg = typeof detail === "object" ? detail?.message ?? "שגיאה בהפעלת האינדקס." : "שגיאה בהפעלת האינדקס.";
+        setActivationError(msg);
+        return;
+      }
+      const data: ActivationResult = await res.json();
+      setActivationResult(data);
+    } catch {
+      setActivationError("שגיאת רשת. אנא בדוק את החיבור ונסה שנית.");
+    } finally {
+      setActivating(false);
     }
   }
 
@@ -402,9 +488,90 @@ export default function KnowledgeUploadPage() {
                   </div>
                 )}
 
-                {processResult && (
-                  <div style={{ marginTop: "0.6rem", padding: "0.5rem 0.75rem", background: "#dcfce7", borderRadius: "4px", fontSize: "0.85rem", color: "#14532d" }}>
-                    <strong>עיבוד הושלם</strong> — {processResult.message}
+                {processResult && !qualityResult && !activationResult && (
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <div style={{ padding: "0.5rem 0.75rem", background: "#dcfce7", borderRadius: "4px", fontSize: "0.85rem", color: "#14532d", marginBottom: "0.5rem" }}>
+                      <strong>עיבוד הושלם</strong> — {processResult.chunk_count} קטעים, אינדקס טיוטה נוצר.
+                    </div>
+                    <div style={{ fontSize: "0.82rem", color: "#374151", marginBottom: "0.4rem" }}>
+                      השלב הבא: הרץ בדיקות איכות לפני פרסום האינדקס.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleQualityCheck(processResult.index_version_id)}
+                      disabled={qualityChecking}
+                      style={{
+                        padding: "0.4rem 1rem",
+                        borderRadius: "4px",
+                        border: "none",
+                        background: qualityChecking ? "#a5b4fc" : "#4f46e5",
+                        color: "#fff",
+                        cursor: qualityChecking ? "not-allowed" : "pointer",
+                        fontWeight: "bold",
+                        fontSize: "0.9rem",
+                      }}
+                    >
+                      {qualityChecking ? "בודק..." : "הרץ בדיקות איכות"}
+                    </button>
+                    {qualityError && (
+                      <div style={{ marginTop: "0.4rem", color: "#b91c1c", fontSize: "0.85rem" }}>{qualityError}</div>
+                    )}
+                  </div>
+                )}
+
+                {qualityResult && !activationResult && (
+                  <div style={{ marginTop: "0.6rem" }}>
+                    <div style={{
+                      padding: "0.5rem 0.75rem",
+                      background: qualityResult.overall_passed ? "#dcfce7" : "#fef2f2",
+                      border: `1px solid ${qualityResult.overall_passed ? "#86efac" : "#fca5a5"}`,
+                      borderRadius: "4px",
+                      fontSize: "0.85rem",
+                      color: qualityResult.overall_passed ? "#14532d" : "#b91c1c",
+                      marginBottom: "0.5rem",
+                    }}>
+                      <strong>{qualityResult.overall_passed ? "בדיקות איכות עברו ✓" : "בדיקות איכות נכשלו ✗"}</strong>
+                      <ul style={{ margin: "0.3rem 0 0", paddingRight: "1.2rem", fontSize: "0.8rem" }}>
+                        {qualityResult.checks.map((c) => (
+                          <li key={c.name} style={{ color: c.passed ? "#166534" : "#b91c1c" }}>
+                            {c.passed ? "✓" : "✗"} {c.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    {qualityResult.overall_passed && (
+                      <div>
+                        <div style={{ background: "#fffbeb", border: "1px solid #f59e0b", borderRadius: "4px", padding: "0.4rem 0.75rem", fontSize: "0.82rem", color: "#92400e", marginBottom: "0.4rem" }}>
+                          <strong>אזהרה:</strong> פרסום האינדקס יהפוך אותו למקור הפעיל לתשובות הצ׳אט. יש לוודא שהתוכן מאושר.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleActivate(qualityResult.index_version_id)}
+                          disabled={activating}
+                          style={{
+                            padding: "0.4rem 1rem",
+                            borderRadius: "4px",
+                            border: "none",
+                            background: activating ? "#fca5a5" : "#dc2626",
+                            color: "#fff",
+                            cursor: activating ? "not-allowed" : "pointer",
+                            fontWeight: "bold",
+                            fontSize: "0.9rem",
+                          }}
+                        >
+                          {activating ? "מפעיל..." : "פרסם אינדקס פעיל"}
+                        </button>
+                        {activationError && (
+                          <div style={{ marginTop: "0.4rem", color: "#b91c1c", fontSize: "0.85rem" }}>{activationError}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activationResult && (
+                  <div style={{ marginTop: "0.6rem", padding: "0.5rem 0.75rem", background: "#dcfce7", border: "1px solid #86efac", borderRadius: "4px", fontSize: "0.85rem", color: "#14532d" }}>
+                    <strong>האינדקס פורסם בהצלחה</strong> — {activationResult.message}
                   </div>
                 )}
               </div>

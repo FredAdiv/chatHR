@@ -12,7 +12,7 @@ class IndexVersion(Base):
     __tablename__ = "index_versions"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('building', 'quality_check_failed', 'ready', 'active', 'archived')",
+            "status IN ('building', 'draft', 'quality_check_failed', 'ready', 'active', 'archived')",
             name="ck_index_versions_status",
         ),
     )

@@ -198,6 +198,7 @@ async def upload_document(
 
     safe_metadata: dict = {
         "semantic_type": document_type.strip(),
+        "file_format": file_format,
         "original_filename": safe_filename,
         "uploaded_by": str(actor.id),
     }
