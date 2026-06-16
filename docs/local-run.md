@@ -57,6 +57,25 @@ Expected response: `{"status": "ok", ...}`
 - The symlink warning (`project loaded from symlink without explicit name`) is harmless.
 - The app runs with `LLM_PROVIDER=fake-local` and `EMBEDDING_PROVIDER=fake-local` by default — no external AI calls in dev.
 
+## טעינת נתוני demo לצ'אט
+
+לבדיקה מלאה של ה-RAG flow (שאלה → retrieval → תשובה עם כרטיסי מקור), הרץ לאחר `docker compose up --build`:
+
+```bash
+docker compose exec api alembic upgrade head
+docker compose exec api python -m scripts.seed_roles
+docker compose exec api python -m scripts.create_initial_admin
+docker compose exec api python -m scripts.seed_demo_chat_data
+```
+
+לאחר מכן:
+- **כניסה:** `chat@example.com` / `chat_dev_password`
+- **הקשר:** משרדי ממשלה
+- **שאלת בדיקה:** `מה הכללים לגבי חופשת מחלה?`
+- **צפוי:** תשובת LLM (fake-local placeholder) + כרטיסי מקור מ-"Demo HR Policy Source"
+
+> **שים לב:** נתוני הdemo אינם מקור רשמי אמיתי — לצורכי בדיקה בלבד.
+
 ## Stopping services
 
 ```bash
