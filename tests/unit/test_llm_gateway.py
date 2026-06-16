@@ -150,6 +150,26 @@ async def test_blocked_call_logged_as_blocked_by_privacy_guard():
 
     assert logged
     assert logged[0].status == "blocked_by_privacy_guard"
+    log_repr = str(vars(logged[0]))
+    assert "pii@example.com" not in log_repr
+
+
+@pytest.mark.asyncio
+async def test_fallback_not_used_for_privacy_block():
+    """When privacy guard blocks, the fallback model must NOT be tried."""
+    messages = [LLMMessage(role="user", content="My ID: 123456782")]
+    mock_provider = AsyncMock()
+    mock_provider.provider_name = "fake-local"
+    mock_provider.generate = AsyncMock()
+
+    with patch("app.services.llm_gateway.gateway.get_llm_provider", return_value=mock_provider), \
+         patch("app.services.llm_gateway.gateway.settings") as mock_settings:
+        mock_settings.default_chat_model = "primary-model"
+        mock_settings.fallback_chat_model = "fallback-model"
+        with pytest.raises(PrivacyGuardBlockedError):
+            await generate_with_gateway(messages, "chat", db=None)
+
+    mock_provider.generate.assert_not_called()
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
