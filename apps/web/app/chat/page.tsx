@@ -12,9 +12,12 @@ import {
   ApiError,
   CitationResponse,
   ContextType,
+  ConversationResponse,
   MessageResponse,
   createConversation,
+  getConversation,
   getMe,
+  listConversations,
   sendMessage,
   submitFeedback,
 } from "@/lib/api";
@@ -24,6 +27,15 @@ const CONTEXT_LABELS: Record<ContextType, string> = {
   defense_system: "מערכת הביטחון",
   health_system: "מערכת הבריאות",
 };
+
+const ALL_ROLES = [
+  "chat_user",
+  "faq_manager",
+  "user_admin",
+  "feedback_reviewer",
+  "knowledge_admin",
+  "system_admin",
+];
 
 interface DisplayMessage {
   id: string;
@@ -64,6 +76,17 @@ function safeErrorMessage(err: unknown): string {
   return "שגיאה בחיבור לשרת. אנא נסה שנית.";
 }
 
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("he-IL", {
+      day: "numeric",
+      month: "short",
+    });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -76,6 +99,10 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Record<string, FeedbackState>>({});
+  const [conversations, setConversations] = useState<ConversationResponse[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingConv, setLoadingConv] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   function handleAuthError() {
@@ -83,6 +110,19 @@ export default function ChatPage() {
       localStorage.removeItem("chathr_token");
     }
     router.push("/login");
+  }
+
+  async function loadConversationList(t: string) {
+    setLoadingHistory(true);
+    try {
+      const list = await listConversations(t);
+      setConversations(list);
+    } catch (err) {
+      const msg = safeErrorMessage(err);
+      if (msg === "__redirect_login__") handleAuthError();
+    } finally {
+      setLoadingHistory(false);
+    }
   }
 
   useEffect(() => {
@@ -100,6 +140,7 @@ export default function ChatPage() {
         if (msg === "__redirect_login__") handleAuthError();
         else setError("לא ניתן לטעון פרטי משתמש.");
       });
+    loadConversationList(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -119,13 +160,41 @@ export default function ChatPage() {
     setError(null);
     setMessages([]);
     setFeedback({});
+    setConversationId(null);
     try {
       const conv = await createConversation(token, context);
       setConversationId(conv.id);
+      setConversations((prev) => [conv, ...prev]);
     } catch (err) {
       const msg = safeErrorMessage(err);
       if (msg === "__redirect_login__") handleAuthError();
       else setError("לא ניתן ליצור שיחה חדשה. אנא נסה שוב.");
+    }
+  }
+
+  async function handleOpenConversation(conv: ConversationResponse) {
+    if (!token) return;
+    setError(null);
+    setConversationId(conv.id);
+    setContext(conv.context_type as ContextType);
+    setMessages([]);
+    setFeedback({});
+    setLoadingConv(true);
+    try {
+      const detail = await getConversation(token, conv.id);
+      const displayMsgs: DisplayMessage[] = detail.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        sources: [],
+      }));
+      setMessages(displayMsgs);
+    } catch (err) {
+      const msg = safeErrorMessage(err);
+      if (msg === "__redirect_login__") handleAuthError();
+      else setError("לא ניתן לטעון שיחה. אנא נסה שוב.");
+    } finally {
+      setLoadingConv(false);
     }
   }
 
@@ -159,6 +228,8 @@ export default function ChatPage() {
           },
         ];
       });
+      // Refresh conversation list to update timestamps
+      loadConversationList(token);
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       const msg = safeErrorMessage(err);
@@ -198,8 +269,12 @@ export default function ChatPage() {
     }
   }
 
-  const isKnowledgeAdmin =
-    userRoles.includes("knowledge_admin") || userRoles.includes("system_admin");
+  const hasRole = (role: string) => userRoles.includes(role);
+  const isKnowledgeAdmin = hasRole("knowledge_admin") || hasRole("system_admin");
+  const isFaqManager = hasRole("faq_manager") || hasRole("system_admin");
+  const isUserAdmin = hasRole("user_admin") || hasRole("system_admin");
+  const isFeedbackReviewer = hasRole("feedback_reviewer") || hasRole("system_admin");
+  const isSystemAdmin = hasRole("system_admin");
 
   if (!token) return null;
 
@@ -210,474 +285,523 @@ export default function ChatPage() {
         style={{
           background: "#1e3a5f",
           color: "#fff",
-          padding: "0.75rem 1.5rem",
+          padding: "0.6rem 1rem",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           flexShrink: 0,
+          gap: "0.5rem",
         }}
       >
-        <span style={{ fontWeight: "bold", fontSize: "1.2rem" }}>ChatHR</span>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          {userEmail && (
-            <span style={{ fontSize: "0.88rem", opacity: 0.85 }}>{userEmail}</span>
-          )}
+          <button
+            onClick={() => setSidebarOpen((v) => !v)}
+            title={sidebarOpen ? "סגור סרגל צד" : "פתח סרגל צד"}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#fff",
+              fontSize: "1.2rem",
+              cursor: "pointer",
+              padding: "0.1rem 0.3rem",
+            }}
+          >
+            ☰
+          </button>
+          <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>ChatHR</span>
+        </div>
+
+        {/* Role-based nav links */}
+        <nav style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           {isKnowledgeAdmin && (
-            <button
-              onClick={() => router.push("/admin/knowledge/upload")}
-              style={{
-                background: "transparent",
-                border: "1px solid rgba(255,255,255,0.45)",
-                color: "#fff",
-                padding: "0.25rem 0.75rem",
-                borderRadius: "4px",
-                cursor: "pointer",
-                fontSize: "0.85rem",
-              }}
-            >
-              טעינת מסמך ידע
+            <button onClick={() => router.push("/admin/knowledge/upload")} style={navBtnStyle}>
+              טעינת מסמך
             </button>
           )}
+          {isKnowledgeAdmin && (
+            <button onClick={() => router.push("/admin/knowledge-sources")} style={navBtnStyle}>
+              מקורות ידע
+            </button>
+          )}
+          {isKnowledgeAdmin && (
+            <button onClick={() => router.push("/admin/index-versions")} style={navBtnStyle}>
+              גרסאות אינדקס
+            </button>
+          )}
+          {isFaqManager && (
+            <button onClick={() => router.push("/admin/faq")} style={navBtnStyle}>
+              ניהול FAQ
+            </button>
+          )}
+          {isFeedbackReviewer && (
+            <button onClick={() => router.push("/admin/feedback")} style={navBtnStyle}>
+              משוב
+            </button>
+          )}
+          {isUserAdmin && (
+            <button onClick={() => router.push("/admin/users")} style={navBtnStyle}>
+              משתמשים
+            </button>
+          )}
+          {isSystemAdmin && (
+            <button onClick={() => router.push("/admin/audit-logs")} style={navBtnStyle}>
+              לוג ביקורת
+            </button>
+          )}
+        </nav>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {userEmail && (
+            <span style={{ fontSize: "0.82rem", opacity: 0.85 }}>{userEmail}</span>
+          )}
+          <button
+            onClick={logout}
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.45)",
+              color: "#fff",
+              padding: "0.25rem 0.7rem",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontSize: "0.88rem",
+            }}
+          >
+            יציאה
+          </button>
         </div>
-        <button
-          onClick={logout}
-          style={{
-            background: "transparent",
-            border: "1px solid rgba(255,255,255,0.45)",
-            color: "#fff",
-            padding: "0.25rem 0.75rem",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "0.9rem",
-          }}
-        >
-          יציאה
-        </button>
       </header>
 
-      {/* Toolbar */}
-      <div
-        style={{
-          background: "#f0f4f8",
-          padding: "0.6rem 1.5rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "1rem",
-          flexShrink: 0,
-          borderBottom: "1px solid #dde3ed",
-        }}
-      >
-        <label style={{ fontWeight: "bold", fontSize: "0.9rem" }}>הקשר:</label>
-        <select
-          value={context}
-          onChange={(e) => setContext(e.target.value as ContextType)}
-          disabled={!!conversationId}
-          style={{
-            padding: "0.3rem 0.6rem",
-            borderRadius: "4px",
-            border: "1px solid #ccc",
-            fontSize: "0.9rem",
-            background: conversationId ? "#e5e7eb" : "#fff",
-          }}
-        >
-          {(Object.entries(CONTEXT_LABELS) as [ContextType, string][]).map(
-            ([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ),
-          )}
-        </select>
-
-        <button
-          onClick={handleNewConversation}
-          style={{
-            padding: "0.35rem 1rem",
-            borderRadius: "4px",
-            border: "none",
-            background: "#2563eb",
-            color: "#fff",
-            cursor: "pointer",
-            fontWeight: "bold",
-            fontSize: "0.9rem",
-          }}
-        >
-          שיחה חדשה
-        </button>
-
-        {conversationId && (
-          <span style={{ fontSize: "0.78rem", color: "#6b7280" }}>
-            שיחה פעילה · {CONTEXT_LABELS[context]}
-          </span>
-        )}
-      </div>
-
-      {/* Messages area */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "1rem 1.5rem",
-          display: "flex",
-          flexDirection: "column",
-          gap: "1rem",
-        }}
-      >
-        {!conversationId && (
-          <div
+      {/* Body row */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        {/* Sidebar: conversation history */}
+        {sidebarOpen && (
+          <aside
             style={{
-              textAlign: "center",
-              color: "#6b7280",
-              marginTop: "4rem",
+              width: "220px",
+              minWidth: "180px",
+              background: "#f8fafc",
+              borderLeft: "1px solid #dde3ed",
+              display: "flex",
+              flexDirection: "column",
+              flexShrink: 0,
+              overflow: "hidden",
             }}
           >
-            <p style={{ fontSize: "1.05rem" }}>
-              בחר הקשר ולחץ <strong>שיחה חדשה</strong> כדי להתחיל.
-            </p>
-          </div>
-        )}
-
-        {error && (
-          <div
-            style={{
-              background: "#fef2f2",
-              border: "1px solid #fca5a5",
-              borderRadius: "6px",
-              padding: "0.65rem 1rem",
-              color: "#b91c1c",
-              fontSize: "0.9rem",
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        {messages.map((msg, i) => {
-          const isUser = msg.role === "user";
-          const fb = feedback[msg.id];
-          const isAssistantWithFeedback =
-            !isUser && !msg.id.startsWith("u-");
-
-          return (
             <div
-              key={i}
               style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: isUser ? "flex-start" : "flex-end",
+                padding: "0.6rem 0.75rem",
+                borderBottom: "1px solid #dde3ed",
+                fontWeight: "bold",
+                fontSize: "0.85rem",
+                color: "#374151",
               }}
             >
-              {/* Role label */}
-              <span
+              שיחות
+            </div>
+
+            {/* Context + New conversation */}
+            <div style={{ padding: "0.5rem 0.6rem", borderBottom: "1px solid #eef0f3" }}>
+              <select
+                value={context}
+                onChange={(e) => setContext(e.target.value as ContextType)}
+                disabled={!!conversationId}
                 style={{
-                  fontSize: "0.75rem",
-                  color: "#6b7280",
-                  marginBottom: "0.2rem",
+                  width: "100%",
+                  padding: "0.25rem 0.4rem",
+                  borderRadius: "4px",
+                  border: "1px solid #ccc",
+                  fontSize: "0.8rem",
+                  marginBottom: "0.4rem",
+                  background: conversationId ? "#e5e7eb" : "#fff",
                 }}
               >
-                {isUser ? "אתה" : "ChatHR"}
-              </span>
-
-              {/* Bubble */}
-              <div
+                {(Object.entries(CONTEXT_LABELS) as [ContextType, string][]).map(
+                  ([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ),
+                )}
+              </select>
+              <button
+                onClick={handleNewConversation}
                 style={{
-                  maxWidth: "72%",
-                  padding: "0.7rem 1rem",
-                  borderRadius: "12px",
-                  lineHeight: 1.6,
-                  whiteSpace: "pre-wrap",
-                  background: isUser ? "#dbeafe" : "#f0fdf4",
-                  border: isUser
-                    ? "1px solid #93c5fd"
-                    : "1px solid #86efac",
+                  width: "100%",
+                  padding: "0.3rem",
+                  borderRadius: "4px",
+                  border: "none",
+                  background: "#2563eb",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                  fontSize: "0.82rem",
                 }}
               >
-                {msg.content}
-              </div>
+                + שיחה חדשה
+              </button>
+            </div>
 
-              {/* Sources (assistant only) */}
-              {!isUser && msg.sources.length > 0 && (
-                <div
-                  style={{
-                    marginTop: "0.5rem",
-                    alignSelf: "flex-end",
-                    maxWidth: "72%",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "0.78rem",
-                      color: "#374151",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    מקורות:
-                  </span>
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "0.3rem",
-                      marginTop: "0.25rem",
-                    }}
-                  >
-                    {msg.sources.map((src, si) => (
-                      <div
-                        key={si}
-                        style={{
-                          background: "#fff",
-                          border: "1px solid #d1d5db",
-                          borderRadius: "6px",
-                          padding: "0.4rem 0.75rem",
-                          fontSize: "0.83rem",
-                        }}
-                      >
-                        <strong>{src.knowledge_source_name}</strong>
-                        {src.source_title && (
-                          <span> — {src.source_title}</span>
-                        )}
-                        {src.section_title && (
-                          <span style={{ color: "#6b7280" }}>
-                            {" "}
-                            ({src.section_title})
-                          </span>
-                        )}
-                        {src.page_number != null && (
-                          <span style={{ color: "#6b7280" }}>
-                            , עמ׳ {src.page_number}
-                          </span>
-                        )}
-                        <button
-                          onClick={() => router.push(`/sources/${src.chunk_id}`)}
-                          style={{
-                            marginRight: "0.5rem",
-                            background: "transparent",
-                            border: "none",
-                            color: "#2563eb",
-                            fontSize: "0.8rem",
-                            cursor: "pointer",
-                            padding: 0,
-                            textDecoration: "underline",
-                          }}
-                        >
-                          צפה במקור
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+            {/* Conversation list */}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {loadingHistory ? (
+                <div style={{ padding: "0.75rem", color: "#6b7280", fontSize: "0.8rem" }}>
+                  טוען...
                 </div>
-              )}
-
-              {/* Feedback (assistant only) */}
-              {isAssistantWithFeedback && (
-                <div
-                  style={{
-                    marginTop: "0.35rem",
-                    alignSelf: "flex-end",
-                  }}
-                >
-                  {fb?.submitted ? (
-                    <span
-                      style={{ fontSize: "0.8rem", color: "#16a34a" }}
-                    >
-                      ✓ תודה על המשוב!
-                    </span>
-                  ) : fb?.showComment ? (
-                    <div
+              ) : conversations.length === 0 ? (
+                <div style={{ padding: "0.75rem", color: "#9ca3af", fontSize: "0.8rem" }}>
+                  אין שיחות קודמות
+                </div>
+              ) : (
+                conversations.map((conv) => {
+                  const isActive = conv.id === conversationId;
+                  return (
+                    <button
+                      key={conv.id}
+                      onClick={() => handleOpenConversation(conv)}
                       style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "0.4rem",
-                        maxWidth: "320px",
+                        display: "block",
+                        width: "100%",
+                        textAlign: "right",
+                        padding: "0.5rem 0.75rem",
+                        border: "none",
+                        borderBottom: "1px solid #eef0f3",
+                        background: isActive ? "#dbeafe" : "transparent",
+                        cursor: "pointer",
+                        fontSize: "0.8rem",
+                        lineHeight: 1.4,
                       }}
                     >
-                      <textarea
-                        value={fb.comment}
-                        onChange={(e) =>
-                          setFeedback((prev) => ({
-                            ...prev,
-                            [msg.id]: { ...fb, comment: e.target.value },
-                          }))
-                        }
-                        placeholder="הערה אופציונלית"
-                        rows={2}
-                        style={{
-                          padding: "0.4rem",
-                          borderRadius: "4px",
-                          border: "1px solid #ccc",
-                          resize: "vertical",
-                          fontSize: "0.88rem",
-                        }}
-                      />
                       <div
-                        style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}
+                        style={{
+                          fontWeight: isActive ? "bold" : "normal",
+                          color: "#1e3a5f",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
                       >
-                        <button
-                          onClick={() =>
-                            setFeedback((prev) => {
-                              const { [msg.id]: _, ...rest } = prev;
-                              return rest;
-                            })
-                          }
-                          style={{
-                            padding: "0.25rem 0.6rem",
-                            borderRadius: "4px",
-                            border: "1px solid #ccc",
-                            background: "#fff",
-                            cursor: "pointer",
-                            fontSize: "0.85rem",
-                          }}
-                        >
-                          ביטול
-                        </button>
-                        <button
-                          onClick={() => submitFeedbackForMessage(msg.id)}
-                          style={{
-                            padding: "0.25rem 0.75rem",
-                            borderRadius: "4px",
-                            border: "none",
-                            background: "#16a34a",
-                            color: "#fff",
-                            cursor: "pointer",
-                            fontSize: "0.85rem",
-                          }}
-                        >
-                          שלח
-                        </button>
+                        {conv.title || CONTEXT_LABELS[conv.context_type as ContextType] || conv.context_type}
+                      </div>
+                      <div style={{ color: "#9ca3af", fontSize: "0.73rem" }}>
+                        {formatDate(conv.created_at)}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+        )}
+
+        {/* Main chat area */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* Messages area */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "1rem 1.5rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1rem",
+            }}
+          >
+            {!conversationId && (
+              <div
+                style={{
+                  textAlign: "center",
+                  color: "#6b7280",
+                  marginTop: "4rem",
+                }}
+              >
+                <p style={{ fontSize: "1.05rem" }}>
+                  בחר הקשר ולחץ <strong>+ שיחה חדשה</strong> בסרגל הצד, או פתח שיחה קיימת.
+                </p>
+              </div>
+            )}
+
+            {loadingConv && (
+              <div style={{ textAlign: "center", color: "#6b7280", marginTop: "2rem" }}>
+                טוען שיחה...
+              </div>
+            )}
+
+            {error && (
+              <div
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fca5a5",
+                  borderRadius: "6px",
+                  padding: "0.65rem 1rem",
+                  color: "#b91c1c",
+                  fontSize: "0.9rem",
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            {messages.map((msg, i) => {
+              const isUser = msg.role === "user";
+              const fb = feedback[msg.id];
+              const isAssistantWithFeedback = !isUser && !msg.id.startsWith("u-");
+
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: isUser ? "flex-start" : "flex-end",
+                  }}
+                >
+                  <span style={{ fontSize: "0.75rem", color: "#6b7280", marginBottom: "0.2rem" }}>
+                    {isUser ? "אתה" : "ChatHR"}
+                  </span>
+
+                  <div
+                    style={{
+                      maxWidth: "72%",
+                      padding: "0.7rem 1rem",
+                      borderRadius: "12px",
+                      lineHeight: 1.6,
+                      whiteSpace: "pre-wrap",
+                      background: isUser ? "#dbeafe" : "#f0fdf4",
+                      border: isUser ? "1px solid #93c5fd" : "1px solid #86efac",
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+
+                  {/* Sources */}
+                  {!isUser && msg.sources.length > 0 && (
+                    <div style={{ marginTop: "0.5rem", alignSelf: "flex-end", maxWidth: "72%" }}>
+                      <span style={{ fontSize: "0.78rem", color: "#374151", fontWeight: "bold" }}>
+                        מקורות:
+                      </span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginTop: "0.25rem" }}>
+                        {msg.sources.map((src, si) => (
+                          <div
+                            key={si}
+                            style={{
+                              background: "#fff",
+                              border: "1px solid #d1d5db",
+                              borderRadius: "6px",
+                              padding: "0.4rem 0.75rem",
+                              fontSize: "0.83rem",
+                            }}
+                          >
+                            <strong>{src.knowledge_source_name}</strong>
+                            {src.source_title && <span> — {src.source_title}</span>}
+                            {src.section_title && (
+                              <span style={{ color: "#6b7280" }}> ({src.section_title})</span>
+                            )}
+                            {src.page_number != null && (
+                              <span style={{ color: "#6b7280" }}>, עמ׳ {src.page_number}</span>
+                            )}
+                            {src.chunk_id && (
+                              <button
+                                onClick={() => router.push(`/sources/${src.chunk_id}`)}
+                                style={{
+                                  marginRight: "0.5rem",
+                                  background: "transparent",
+                                  border: "none",
+                                  color: "#2563eb",
+                                  fontSize: "0.8rem",
+                                  cursor: "pointer",
+                                  padding: 0,
+                                  textDecoration: "underline",
+                                }}
+                              >
+                                צפה במקור
+                              </button>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ) : (
-                    <div style={{ display: "flex", gap: "0.4rem" }}>
-                      <button
-                        onClick={() => startFeedback(msg.id, "positive")}
-                        title="תגובה חיובית"
-                        style={{
-                          border: "none",
-                          background: "transparent",
-                          fontSize: "1.1rem",
-                          cursor: "pointer",
-                          padding: "0.1rem 0.3rem",
-                        }}
-                      >
-                        👍
-                      </button>
-                      <button
-                        onClick={() => startFeedback(msg.id, "negative")}
-                        title="תגובה שלילית"
-                        style={{
-                          border: "none",
-                          background: "transparent",
-                          fontSize: "1.1rem",
-                          cursor: "pointer",
-                          padding: "0.1rem 0.3rem",
-                        }}
-                      >
-                        👎
-                      </button>
+                  )}
+
+                  {/* Feedback */}
+                  {isAssistantWithFeedback && (
+                    <div style={{ marginTop: "0.35rem", alignSelf: "flex-end" }}>
+                      {fb?.submitted ? (
+                        <span style={{ fontSize: "0.8rem", color: "#16a34a" }}>✓ תודה על המשוב!</span>
+                      ) : fb?.showComment ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", maxWidth: "320px" }}>
+                          <textarea
+                            value={fb.comment}
+                            onChange={(e) =>
+                              setFeedback((prev) => ({
+                                ...prev,
+                                [msg.id]: { ...fb, comment: e.target.value },
+                              }))
+                            }
+                            placeholder="הערה אופציונלית"
+                            rows={2}
+                            style={{
+                              padding: "0.4rem",
+                              borderRadius: "4px",
+                              border: "1px solid #ccc",
+                              resize: "vertical",
+                              fontSize: "0.88rem",
+                            }}
+                          />
+                          <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+                            <button
+                              onClick={() =>
+                                setFeedback((prev) => {
+                                  const { [msg.id]: _, ...rest } = prev;
+                                  return rest;
+                                })
+                              }
+                              style={{
+                                padding: "0.25rem 0.6rem",
+                                borderRadius: "4px",
+                                border: "1px solid #ccc",
+                                background: "#fff",
+                                cursor: "pointer",
+                                fontSize: "0.85rem",
+                              }}
+                            >
+                              ביטול
+                            </button>
+                            <button
+                              onClick={() => submitFeedbackForMessage(msg.id)}
+                              style={{
+                                padding: "0.25rem 0.75rem",
+                                borderRadius: "4px",
+                                border: "none",
+                                background: "#16a34a",
+                                color: "#fff",
+                                cursor: "pointer",
+                                fontSize: "0.85rem",
+                              }}
+                            >
+                              שלח
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: "0.4rem" }}>
+                          <button
+                            onClick={() => startFeedback(msg.id, "positive")}
+                            title="תגובה חיובית"
+                            style={{ border: "none", background: "transparent", fontSize: "1.1rem", cursor: "pointer", padding: "0.1rem 0.3rem" }}
+                          >
+                            👍
+                          </button>
+                          <button
+                            onClick={() => startFeedback(msg.id, "negative")}
+                            title="תגובה שלילית"
+                            style={{ border: "none", background: "transparent", fontSize: "1.1rem", cursor: "pointer", padding: "0.1rem 0.3rem" }}
+                          >
+                            👎
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
 
-        {sending && (
+            {sending && (
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div
+                  style={{
+                    padding: "0.6rem 1rem",
+                    background: "#f0fdf4",
+                    border: "1px solid #86efac",
+                    borderRadius: "12px",
+                    color: "#6b7280",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  ⏳ מעבד...
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input area */}
           <div
             style={{
-              display: "flex",
-              justifyContent: "flex-end",
+              background: "#f0f4f8",
+              padding: "0.75rem 1.5rem",
+              borderTop: "1px solid #dde3ed",
+              flexShrink: 0,
             }}
           >
-            <div
+            <p
               style={{
-                padding: "0.6rem 1rem",
-                background: "#f0fdf4",
-                border: "1px solid #86efac",
-                borderRadius: "12px",
+                fontSize: "0.75rem",
                 color: "#6b7280",
-                fontSize: "0.9rem",
+                margin: "0 0 0.4rem 0",
+                lineHeight: 1.4,
               }}
             >
-              ⏳ מעבד...
-            </div>
+              נא לא להזין פרטים מזהים, טקסט פוגעני או שאלות שאינן בתחום משאבי אנוש בשירות המדינה.
+              המענה מבוסס רק על מקורות רשמיים שאונדקסו במערכת.
+            </p>
+            <form
+              onSubmit={handleSend}
+              style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end" }}
+            >
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  conversationId
+                    ? "הקלד שאלה... (Enter לשליחה, Shift+Enter לשורה חדשה)"
+                    : "צור שיחה חדשה כדי להתחיל"
+                }
+                disabled={!conversationId || sending}
+                rows={2}
+                style={{
+                  flex: 1,
+                  padding: "0.5rem 0.75rem",
+                  borderRadius: "6px",
+                  border: "1px solid #ccc",
+                  resize: "none",
+                  fontSize: "1rem",
+                  lineHeight: 1.5,
+                  background: !conversationId ? "#e5e7eb" : "#fff",
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!conversationId || !input.trim() || sending}
+                style={{
+                  padding: "0.5rem 1.25rem",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: !conversationId || !input.trim() || sending ? "#93c5fd" : "#2563eb",
+                  color: "#fff",
+                  cursor: !conversationId || !input.trim() || sending ? "not-allowed" : "pointer",
+                  fontWeight: "bold",
+                  fontSize: "1rem",
+                  height: "fit-content",
+                }}
+              >
+                שלח
+              </button>
+            </form>
           </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input area */}
-      <div
-        style={{
-          background: "#f0f4f8",
-          padding: "0.75rem 1.5rem",
-          borderTop: "1px solid #dde3ed",
-          flexShrink: 0,
-        }}
-      >
-        <p
-          style={{
-            fontSize: "0.75rem",
-            color: "#6b7280",
-            margin: "0 0 0.4rem 0",
-            lineHeight: 1.4,
-          }}
-        >
-          נא לא להזין פרטים מזהים, טקסט פוגעני או שאלות שאינן בתחום משאבי אנוש בשירות המדינה.
-          המענה מבוסס רק על מקורות רשמיים שאונדקסו במערכת.
-        </p>
-        <form
-          onSubmit={handleSend}
-          style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end" }}
-        >
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              conversationId
-                ? "הקלד שאלה... (Enter לשליחה, Shift+Enter לשורה חדשה)"
-                : "צור שיחה חדשה כדי להתחיל"
-            }
-            disabled={!conversationId || sending}
-            rows={2}
-            style={{
-              flex: 1,
-              padding: "0.5rem 0.75rem",
-              borderRadius: "6px",
-              border: "1px solid #ccc",
-              resize: "none",
-              fontSize: "1rem",
-              lineHeight: 1.5,
-              background: !conversationId ? "#e5e7eb" : "#fff",
-            }}
-          />
-          <button
-            type="submit"
-            disabled={!conversationId || !input.trim() || sending}
-            style={{
-              padding: "0.5rem 1.25rem",
-              borderRadius: "6px",
-              border: "none",
-              background:
-                !conversationId || !input.trim() || sending
-                  ? "#93c5fd"
-                  : "#2563eb",
-              color: "#fff",
-              cursor:
-                !conversationId || !input.trim() || sending
-                  ? "not-allowed"
-                  : "pointer",
-              fontWeight: "bold",
-              fontSize: "1rem",
-              height: "fit-content",
-            }}
-          >
-            שלח
-          </button>
-        </form>
+        </div>
       </div>
     </div>
   );
 }
+
+const navBtnStyle: React.CSSProperties = {
+  background: "transparent",
+  border: "1px solid rgba(255,255,255,0.35)",
+  color: "#fff",
+  padding: "0.2rem 0.6rem",
+  borderRadius: "4px",
+  cursor: "pointer",
+  fontSize: "0.8rem",
+  whiteSpace: "nowrap",
+};

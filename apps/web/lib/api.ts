@@ -33,6 +33,14 @@ export interface MessageResponse {
   created_at: string;
 }
 
+export interface ConversationDetailResponse {
+  id: string;
+  context_type: string;
+  title: string | null;
+  created_at: string;
+  messages: MessageResponse[];
+}
+
 export interface CitationResponse {
   chunk_id: string;
   source_document_id: string;
@@ -72,6 +80,131 @@ export interface ChunkViewResponse {
   excerpt: string;
 }
 
+// ── Admin: Feedback ───────────────────────────────────────────────────────────
+
+export interface FeedbackItem {
+  id: string;
+  message_id: string;
+  conversation_id: string | null;
+  rating: string;
+  comment: string | null;
+  created_at: string;
+}
+
+export interface FeedbackListResponse {
+  items: FeedbackItem[];
+  total: number;
+}
+
+// ── Admin: Audit Logs ─────────────────────────────────────────────────────────
+
+export interface AuditLogItem {
+  id: string;
+  actor_user_id: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  metadata_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AuditLogListResponse {
+  items: AuditLogItem[];
+  total: number;
+}
+
+// ── Admin: FAQ ────────────────────────────────────────────────────────────────
+
+export interface FaqItemResponse {
+  id: string;
+  question: string;
+  answer: string;
+  topic: string | null;
+  context_type: string | null;
+  applicable_population: string | null;
+  official_source_links: string[];
+  status: string;
+  approved_by_user_id: string | null;
+  content_version: number;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface FaqCreate {
+  question: string;
+  answer: string;
+  topic?: string;
+  context_type?: ContextType;
+  applicable_population?: string;
+  official_source_links?: string[];
+}
+
+export interface FaqUpdate {
+  question?: string;
+  answer?: string;
+  topic?: string;
+  context_type?: ContextType;
+  applicable_population?: string;
+  official_source_links?: string[];
+}
+
+// ── Admin: Knowledge Sources ──────────────────────────────────────────────────
+
+export interface KnowledgeSourceResponse {
+  id: string;
+  name: string;
+  source_type: string;
+  url: string | null;
+  authority_level: number;
+  is_active: boolean;
+  context_type: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface KnowledgeSourceCreate {
+  name: string;
+  source_type: string;
+  url?: string;
+  authority_level: number;
+  is_active?: boolean;
+  context_type?: ContextType;
+}
+
+// ── Admin: Index Versions ─────────────────────────────────────────────────────
+
+export interface IndexVersionResponse {
+  id: string;
+  version_label: string;
+  status: string;
+  embedding_model: string;
+  created_by_user_id: string | null;
+  activated_by_user_id: string | null;
+  created_at: string | null;
+  activated_at: string | null;
+  metadata_json: Record<string, unknown> | null;
+}
+
+// ── Admin: Users ──────────────────────────────────────────────────────────────
+
+export interface AdminUserResponse {
+  id: string;
+  email: string;
+  display_name: string | null;
+  is_active: boolean;
+  roles: string[];
+  created_at: string | null;
+}
+
+export interface CreateUserRequest {
+  email: string;
+  display_name?: string;
+  password: string;
+  roles?: string[];
+}
+
+// ── Error ─────────────────────────────────────────────────────────────────────
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -104,6 +237,12 @@ function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
+function jsonHeaders(token: string): Record<string, string> {
+  return { ...authHeaders(token), "Content-Type": "application/json" };
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
 export async function login(
   email: string,
   password: string,
@@ -122,6 +261,8 @@ export async function getMe(token: string): Promise<MeResponse> {
   });
 }
 
+// ── Chat ──────────────────────────────────────────────────────────────────────
+
 export async function createConversation(
   token: string,
   context_type: ContextType,
@@ -129,12 +270,27 @@ export async function createConversation(
 ): Promise<ConversationResponse> {
   return apiFetch<ConversationResponse>("/chat/conversations", {
     method: "POST",
-    headers: {
-      ...authHeaders(token),
-      "Content-Type": "application/json",
-    },
+    headers: jsonHeaders(token),
     body: JSON.stringify({ context_type, title }),
   });
+}
+
+export async function listConversations(
+  token: string,
+): Promise<ConversationResponse[]> {
+  return apiFetch<ConversationResponse[]>("/chat/conversations", {
+    headers: authHeaders(token),
+  });
+}
+
+export async function getConversation(
+  token: string,
+  conversationId: string,
+): Promise<ConversationDetailResponse> {
+  return apiFetch<ConversationDetailResponse>(
+    `/chat/conversations/${conversationId}`,
+    { headers: authHeaders(token) },
+  );
 }
 
 export async function sendMessage(
@@ -146,11 +302,24 @@ export async function sendMessage(
     `/chat/conversations/${conversationId}/messages`,
     {
       method: "POST",
-      headers: {
-        ...authHeaders(token),
-        "Content-Type": "application/json",
-      },
+      headers: jsonHeaders(token),
       body: JSON.stringify({ content }),
+    },
+  );
+}
+
+export async function submitFeedback(
+  token: string,
+  messageId: string,
+  rating: "positive" | "negative",
+  comment?: string,
+): Promise<FeedbackResponse> {
+  return apiFetch<FeedbackResponse>(
+    `/chat/messages/${messageId}/feedback`,
+    {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ rating, comment }),
     },
   );
 }
@@ -164,21 +333,181 @@ export async function getChunk(
   });
 }
 
-export async function submitFeedback(
+// ── Admin: Feedback ───────────────────────────────────────────────────────────
+
+export async function listAdminFeedback(
   token: string,
-  messageId: string,
-  rating: "positive" | "negative",
-  comment?: string,
-): Promise<FeedbackResponse> {
-  return apiFetch<FeedbackResponse>(
-    `/chat/messages/${messageId}/feedback`,
-    {
-      method: "POST",
-      headers: {
-        ...authHeaders(token),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ rating, comment }),
-    },
-  );
+  params?: { rating?: string; offset?: number; limit?: number },
+): Promise<FeedbackListResponse> {
+  const qs = new URLSearchParams();
+  if (params?.rating) qs.set("rating", params.rating);
+  if (params?.offset != null) qs.set("offset", String(params.offset));
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  const q = qs.toString() ? `?${qs}` : "";
+  return apiFetch<FeedbackListResponse>(`/admin/feedback${q}`, {
+    headers: authHeaders(token),
+  });
+}
+
+// ── Admin: Audit Logs ─────────────────────────────────────────────────────────
+
+export async function listAuditLogs(
+  token: string,
+  params?: { action?: string; actor_user_id?: string; offset?: number; limit?: number },
+): Promise<AuditLogListResponse> {
+  const qs = new URLSearchParams();
+  if (params?.action) qs.set("action", params.action);
+  if (params?.actor_user_id) qs.set("actor_user_id", params.actor_user_id);
+  if (params?.offset != null) qs.set("offset", String(params.offset));
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  const q = qs.toString() ? `?${qs}` : "";
+  return apiFetch<AuditLogListResponse>(`/admin/audit-logs${q}`, {
+    headers: authHeaders(token),
+  });
+}
+
+// ── Admin: FAQ ────────────────────────────────────────────────────────────────
+
+export async function listFaq(
+  token: string,
+  params?: { status?: string; context_type?: string },
+): Promise<FaqItemResponse[]> {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set("status", params.status);
+  if (params?.context_type) qs.set("context_type", params.context_type);
+  const q = qs.toString() ? `?${qs}` : "";
+  return apiFetch<FaqItemResponse[]>(`/admin/faq${q}`, {
+    headers: authHeaders(token),
+  });
+}
+
+export async function createFaq(
+  token: string,
+  data: FaqCreate,
+): Promise<FaqItemResponse> {
+  return apiFetch<FaqItemResponse>("/admin/faq", {
+    method: "POST",
+    headers: jsonHeaders(token),
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateFaq(
+  token: string,
+  faqId: string,
+  data: FaqUpdate,
+): Promise<FaqItemResponse> {
+  return apiFetch<FaqItemResponse>(`/admin/faq/${faqId}`, {
+    method: "PUT",
+    headers: jsonHeaders(token),
+    body: JSON.stringify(data),
+  });
+}
+
+export async function approveFaq(
+  token: string,
+  faqId: string,
+): Promise<FaqItemResponse> {
+  return apiFetch<FaqItemResponse>(`/admin/faq/${faqId}/approve`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+}
+
+export async function archiveFaq(
+  token: string,
+  faqId: string,
+): Promise<FaqItemResponse> {
+  return apiFetch<FaqItemResponse>(`/admin/faq/${faqId}/archive`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+}
+
+// ── Admin: Knowledge Sources ──────────────────────────────────────────────────
+
+export async function listKnowledgeSources(
+  token: string,
+): Promise<KnowledgeSourceResponse[]> {
+  return apiFetch<KnowledgeSourceResponse[]>("/admin/knowledge-sources", {
+    headers: authHeaders(token),
+  });
+}
+
+export async function createKnowledgeSource(
+  token: string,
+  data: KnowledgeSourceCreate,
+): Promise<KnowledgeSourceResponse> {
+  return apiFetch<KnowledgeSourceResponse>("/admin/knowledge-sources", {
+    method: "POST",
+    headers: jsonHeaders(token),
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateKnowledgeSource(
+  token: string,
+  sourceId: string,
+  data: Partial<KnowledgeSourceCreate>,
+): Promise<KnowledgeSourceResponse> {
+  return apiFetch<KnowledgeSourceResponse>(`/admin/knowledge-sources/${sourceId}`, {
+    method: "PUT",
+    headers: jsonHeaders(token),
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Admin: Index Versions ─────────────────────────────────────────────────────
+
+export async function listIndexVersions(
+  token: string,
+  statusFilter?: string,
+): Promise<IndexVersionResponse[]> {
+  const q = statusFilter ? `?status=${statusFilter}` : "";
+  return apiFetch<IndexVersionResponse[]>(`/admin/index-versions${q}`, {
+    headers: authHeaders(token),
+  });
+}
+
+// ── Admin: Users ──────────────────────────────────────────────────────────────
+
+export async function listUsers(
+  token: string,
+): Promise<AdminUserResponse[]> {
+  return apiFetch<AdminUserResponse[]>("/admin/users", {
+    headers: authHeaders(token),
+  });
+}
+
+export async function createUser(
+  token: string,
+  data: CreateUserRequest,
+): Promise<AdminUserResponse> {
+  return apiFetch<AdminUserResponse>("/admin/users", {
+    method: "POST",
+    headers: jsonHeaders(token),
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateUserRoles(
+  token: string,
+  userId: string,
+  roles: string[],
+): Promise<AdminUserResponse> {
+  return apiFetch<AdminUserResponse>(`/admin/users/${userId}`, {
+    method: "PUT",
+    headers: jsonHeaders(token),
+    body: JSON.stringify({ roles }),
+  });
+}
+
+export async function deactivateUser(
+  token: string,
+  userId: string,
+): Promise<AdminUserResponse> {
+  return apiFetch<AdminUserResponse>(`/admin/users/${userId}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+  });
 }

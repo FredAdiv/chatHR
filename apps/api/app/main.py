@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.admin_audit_logs import router as admin_audit_logs_router
 from app.api.admin_embeddings import router as admin_embeddings_router
+from app.api.admin_feedback import router as admin_feedback_router
 from app.api.admin_llm_gateway import router as admin_llm_gateway_router
 from app.api.admin_faq import router as admin_faq_router
 from app.api.admin_retrieval import router as admin_retrieval_router
@@ -48,6 +50,8 @@ app.include_router(admin_retrieval_router)
 app.include_router(admin_llm_gateway_router)
 app.include_router(chat_router)
 app.include_router(knowledge_chunks_router)
+app.include_router(admin_feedback_router)
+app.include_router(admin_audit_logs_router)
 # DEV-ONLY router — remove or gate behind feature flag before production
 app.include_router(dev_router)
 
