@@ -23,10 +23,11 @@ from app.db.models.message import Message
 from app.db.models.message_source import MessageSource
 from app.db.session import get_db
 from app.services.audit import record_audit_event
+from app.services.chat.extractive_synthesizer import is_usable_llm_response, synthesize_answer
 from app.services.chat.prompt_builder import build_chat_prompt, no_source_answer
 from app.services.guardrails.input_guard import check_feedback_comment, check_user_input
 from app.services.llm_gateway.gateway import generate_with_gateway
-from app.services.llm_gateway.protocol import PrivacyGuardBlockedError
+from app.services.llm_gateway.protocol import LLMProviderError, PrivacyGuardBlockedError
 from app.services.privacy.guard import check_text
 from app.services.retrieval.retriever import retrieve_chunks
 
@@ -336,7 +337,7 @@ async def send_message(
         context_type=conv.context_type,
     )
 
-    # 7. Call LLM Gateway (fake-local by default)
+    # 7. Call LLM Gateway; fall back to local extractive synthesizer when unavailable
     try:
         llm_response = await generate_with_gateway(
             messages=messages_for_llm,
@@ -349,6 +350,13 @@ async def send_message(
         # Assembled prompt triggered privacy guard — return safe refusal
         answer_content = no_source_answer()
         chunks = []
+    except LLMProviderError:
+        # All providers failed — fall through to local synthesizer below
+        answer_content = ""
+
+    # 7b. If LLM returned unusable debug/fake-local output, use local extractive synthesizer
+    if chunks and not is_usable_llm_response(answer_content):
+        answer_content = synthesize_answer(chunks)
 
     source_chunk_ids = [c.chunk_id for c in chunks]
 
