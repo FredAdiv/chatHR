@@ -130,3 +130,18 @@ User → Next.js → FastAPI (auth + RBAC check)
 - No full prompt storage by default
 - Privacy guard runs before every model call
 - No personal data sent to external models
+
+## Implementation Status
+
+### Phase 1 — Runnable Skeleton (current)
+
+| Component | Status |
+|---|---|
+| `docker-compose.yml` (api, web, postgres, redis, minio) | ✅ Done |
+| FastAPI app with `/health` and `/ready` endpoints | ✅ Done |
+| Next.js app with home page and API health display | ✅ Done |
+| Unit test for `/health` | ✅ Done |
+
+### Phase 2 — Pending
+
+Authentication, RBAC, chat endpoint, FAQ management, RAG pipeline, LLM Gateway, audit log, privacy guard.
