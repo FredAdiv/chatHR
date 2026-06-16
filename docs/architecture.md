@@ -263,6 +263,31 @@ Phase 7 constraints:
 - Raw bytes remain in MinIO only; full text not in audit logs
 - Parser safety: documents never executed, no macros run
 
-### Phase 8 — Pending
+### Phase 8 — Embeddings + pgvector Foundation ✅
 
-Embeddings (pgvector), RAG retrieval, chat endpoint, streaming, LLM Gateway (OpenRouter), privacy guard, SSO, FAQ management UI.
+| Component | Status |
+|---|---|
+| pgvector extension enabled via Alembic migration 0005 | ✅ Done |
+| `ChunkEmbedding` model + migration | ✅ Done |
+| `EmbeddingProvider` protocol | ✅ Done |
+| Fake deterministic local provider (no external calls) | ✅ Done |
+| Provider factory (fake-local only; real providers are future work) | ✅ Done |
+| `embed_chunks_for_index_version` orchestrator | ✅ Done |
+| POST /admin/embeddings/generate | ✅ Done |
+| GET /admin/embeddings | ✅ Done |
+| POST /admin/embeddings/search (cosine distance, pgvector) | ✅ Done |
+| 39 new unit tests | ✅ Done |
+| docs/embeddings.md | ✅ Done |
+
+**Constraints enforced:**
+- Only `building` index versions accept embeddings
+- Duplicate embeddings skipped (chunk + model + hash + version)
+- `DocumentChunk` rows are never mutated
+- Audit metadata contains counts only — no chunk text
+- No external embedding API calls — fake-local only in MVP
+- Raw embedding vectors not returned in list API
+- All authorization server-side (knowledge_admin, system_admin)
+
+### Phase 9 — Pending
+
+RAG retrieval pipeline, real embedding provider via LLM Gateway (with privacy guard), chat endpoint, streaming, OpenRouter, privacy guard, SSO, FAQ management UI.

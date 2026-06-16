@@ -105,9 +105,15 @@ All endpoints require `knowledge_admin` or `system_admin` role.
 | `index_version_activated` | PATCH …/activate (records on new active version) |
 | `index_version_archived` | PATCH …/archive or auto-archive on activation |
 
+## Relationship to Embeddings
+
+Embeddings are generated for `building` index versions via `POST /admin/embeddings/generate`.  
+Chunks can be embedded incrementally; the index version is promoted to `ready` manually.  
+See [docs/embeddings.md](embeddings.md) for details.
+
 ## Current Limitations
 
-- No actual crawling, embedding, or vector index building. Index versions are metadata records only.
 - Quality checks are represented only by `mark-ready` (manual) in MVP. Real automated quality checks are future work.
 - No rollback endpoint yet. To roll back: activate a previous `ready` version if one exists.
-- No vector search or RAG retrieval connected to index versions yet.
+- IVFFlat/HNSW vector index not yet created (deferred until data volume warrants it).
+- RAG retrieval not connected yet — vector search is admin/debug only in MVP.

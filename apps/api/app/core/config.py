@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     minio_bucket_documents: str = "chathr-documents"
     minio_secure: bool = False
 
+    # Embedding provider — fake-local for MVP/dev/tests only
+    # Real providers must pass through the LLM Gateway and privacy guard (future work)
+    embedding_provider: str = "fake-local"
+    embedding_dimension: int = 16
+    embedding_model: str = "fake-local-v1"
+
     @property
     def async_database_url(self) -> str:
         return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.admin_embeddings import router as admin_embeddings_router
 from app.api.admin_faq import router as admin_faq_router
 from app.api.admin_index_versions import router as admin_index_versions_router
 from app.api.admin_ingestion import router as admin_ingestion_router
@@ -23,6 +24,7 @@ app.include_router(admin_knowledge_sources_router)
 app.include_router(admin_index_versions_router)
 app.include_router(admin_ingestion_router)
 app.include_router(admin_parsing_router)
+app.include_router(admin_embeddings_router)
 # DEV-ONLY router — remove or gate behind feature flag before production
 app.include_router(dev_router)
 

@@ -1,4 +1,5 @@
 from app.db.models.audit_log import AuditLog
+from app.db.models.chunk_embedding import ChunkEmbedding
 from app.db.models.conversation import Conversation
 from app.db.models.document_chunk import DocumentChunk
 from app.db.models.faq_item import FaqItem
@@ -17,6 +18,7 @@ from app.db.models.user_role import UserRole
 __all__ = [
     "AuditLog",
     "AnswerFeedback",
+    "ChunkEmbedding",
     "Conversation",
     "DocumentChunk",
     "FaqItem",
