@@ -32,6 +32,9 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
+# Local test documents (official files downloaded by the user — never commit)
+local-data/
+
 # Test artifacts
 .pytest_cache/
 coverage/

@@ -109,6 +109,71 @@ docker compose exec api python -m scripts.load_single_source_to_active_index \
 - נסה **קישור ישיר ל-PDF או מסמך רשמי** מתוך gov.il (לדוגמה: קישור ישיר לקובץ PDF של חוזר מנכ"ל).
 - הימנע מדפי ניווט ראשיים או דפי חיפוש.
 
+## טעינת קובץ מקומי — התקשי״ר
+
+לטעינת מסמך רשמי שהורדת ידנית (למשל התקשי״ר) לתוך אינדקס חדש ופעיל:
+
+### 1. הכן את תיקיית local-data
+
+```bash
+mkdir -p local-data
+```
+
+העתק את הקובץ שהורדת:
+```bash
+cp /path/to/takshir.pdf local-data/takshir.pdf
+```
+
+> **חשוב:** אל תעלה קבצים אמיתיים ל-Git — `local-data/` מוחרגת ב-`.gitignore`.
+
+### 2. הפעל את השירותים
+
+```bash
+docker compose up --build -d
+docker compose exec api alembic upgrade head
+docker compose exec api python -m scripts.seed_roles
+docker compose exec api python -m scripts.create_initial_admin
+docker compose exec api python -m scripts.seed_demo_chat_data
+```
+
+### 3. טען את הקובץ לאינדקס
+
+```bash
+docker compose exec api python -m scripts.load_local_file_to_active_index \
+  "/app/local-data/takshir.pdf" \
+  --source-name "תקשי״ר - מסמך בדיקה מקומי" \
+  --source-url "https://www.gov.il/he/departments/policies/takshir" \
+  --context-type government_ministries \
+  --authority-level 1 \
+  --index-version "takshir-local-v1"
+```
+
+**ארגומנטים:**
+
+| דגל | חובה | תיאור |
+|-----|------|-------|
+| `file_path` | ✓ | נתיב הקובץ בתוך ה-container |
+| `--source-name` | ✓ | שם קריא לאדם |
+| `--source-url` | ✓ | URL לציטוט בלבד (לא מורד) |
+| `--context-type` | | `government_ministries` / `defense_system` / `health_system` [ברירת מחדל: `government_ministries`] |
+| `--authority-level` | | 1-5, נמוך = עוצמה גבוהה יותר [ברירת מחדל: 1] |
+| `--index-version` | | תווית גרסת האינדקס [ברירת מחדל: `local-file-v1`] |
+
+**סיומות נתמכות:** `.pdf`, `.docx`, `.doc`, `.xlsx`, `.xls`, `.html`, `.htm`, `.txt`
+
+### 4. בדיקה ידנית
+
+- **כניסה:** `chat@example.com` / `chat_dev_password`
+- **הקשר:** משרדי ממשלה
+- **שאל שאלה** הקשורה למסמך שנטען
+- **צפוי:** תשובת LLM (fake-local placeholder) + כרטיסי מקור עם `authority_level=1`
+
+> **הגבלות:**
+> - הסקריפט מאנדקס רק את הקובץ המקומי שסיפקת — אינו מחפש באינטרנט ואינו מוריד מ-gov.il.
+> - ה-`source_url` משמש לציטוט בלבד (metadata).
+> - הקובץ המקומי חייב להיות מסמך רשמי שהשגת בעצמך.
+> - תוכן הגלם נשמר ב-MinIO בלבד — לא ב-DB, לא בלוגים, ולא בפלט.
+
 ## Stopping services
 
 ```bash
