@@ -180,13 +180,16 @@ docker compose exec api python -m scripts.load_local_file_to_active_index \
 
 ### פתיחת המסך
 
-לאחר `docker compose up --build`, פתח בדפדפן:
+לאחר `docker compose up --build`, היכנס לצ'אט עם משתמש `knowledge_admin` או `system_admin`. כפתור **"טעינת מסמך ידע"** יופיע בפס הכותרת. לחיצה עליו תנווט למסך ההעלאה.
+
+ניתן לנווט גם ישירות:
 
 ```
 http://localhost:3000/admin/knowledge/upload
 ```
 
 > **הרשאה:** רק משתמשים עם תפקיד `knowledge_admin` או `system_admin` יכולים לגשת למסך. משתמש chat_user רגיל יקבל שגיאת הרשאה.
+> **שים לב:** כדי שהמסך יהיה נגיש, יש להריץ `docker compose up --build` לאחר כל עדכון קוד — המסך לא ייכלל בבנייה ישנה של ה-container.
 
 ### שדות הטופס
 

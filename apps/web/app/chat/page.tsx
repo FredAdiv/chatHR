@@ -68,6 +68,7 @@ export default function ChatPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
+  const [userRoles, setUserRoles] = useState<string[]>([]);
   const [context, setContext] = useState<ContextType>("government_ministries");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -93,7 +94,7 @@ export default function ChatPage() {
     }
     setToken(t);
     getMe(t)
-      .then((me) => setUserEmail(me.email))
+      .then((me) => { setUserEmail(me.email); setUserRoles(me.roles); })
       .catch((err) => {
         const msg = safeErrorMessage(err);
         if (msg === "__redirect_login__") handleAuthError();
@@ -197,6 +198,9 @@ export default function ChatPage() {
     }
   }
 
+  const isKnowledgeAdmin =
+    userRoles.includes("knowledge_admin") || userRoles.includes("system_admin");
+
   if (!token) return null;
 
   return (
@@ -214,9 +218,27 @@ export default function ChatPage() {
         }}
       >
         <span style={{ fontWeight: "bold", fontSize: "1.2rem" }}>ChatHR</span>
-        {userEmail && (
-          <span style={{ fontSize: "0.88rem", opacity: 0.85 }}>{userEmail}</span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {userEmail && (
+            <span style={{ fontSize: "0.88rem", opacity: 0.85 }}>{userEmail}</span>
+          )}
+          {isKnowledgeAdmin && (
+            <button
+              onClick={() => router.push("/admin/knowledge/upload")}
+              style={{
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.45)",
+                color: "#fff",
+                padding: "0.25rem 0.75rem",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "0.85rem",
+              }}
+            >
+              טעינת מסמך ידע
+            </button>
+          )}
+        </div>
         <button
           onClick={logout}
           style={{
