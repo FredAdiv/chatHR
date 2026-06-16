@@ -87,17 +87,27 @@ DATABASE_URL=postgresql://chathr_user:yourpassword@localhost:5432/chathr \
 docker compose run --rm api python scripts/seed_roles.py
 ```
 
+## Authentication Fields
+
+The `users` table includes local MVP authentication fields added in migration `0002`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `password_hash` | `Text`, nullable | bcrypt hash of local password. Nullable to support future SSO-only users who will not have a local password. |
+| `last_login_at` | `DateTime(tz)`, nullable | Updated on each successful login. |
+
+Local MVP auth uses JWT bearer tokens (see [docs/auth.md](auth.md)). Production SSO (organizational identity provider) is **not yet implemented** — the schema is intentionally compatible with both.
+
 ## Current Limitations
 
 - `updated_at` columns are set at INSERT time by the DB. Auto-update on row modification requires either a PostgreSQL trigger or explicit application-level assignment. Triggers will be added in a future migration.
 - `pgvector` extension is available in the container but the `vector` column type is not yet used (pending RAG implementation).
-- No authentication or session management yet — the schema is ready but the auth layer is a future task.
+- Production SSO / external identity provider integration is not implemented — local bcrypt passwords are MVP only.
 - DB integration tests are not yet wired into CI — they require a running PostgreSQL container.
 
 ## Next Planned Database Work
 
 1. Add `updated_at` auto-update triggers
 2. Add `pgvector` columns to `knowledge_sources` or a dedicated `embeddings` table
-3. Implement authentication (JWT, sessions)
-4. Wire migrations into Docker Compose startup or a dedicated init service
-5. Add DB integration tests via pytest + testcontainers or docker-compose.test.yml
+3. Wire migrations into Docker Compose startup or a dedicated init service
+4. Add DB integration tests via pytest + testcontainers or docker-compose.test.yml

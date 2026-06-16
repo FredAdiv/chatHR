@@ -12,7 +12,7 @@ from app.services.audit import record_audit_event
 @pytest.mark.asyncio
 async def test_record_audit_event_basic():
     """record_audit_event should add an AuditLog entry to the session."""
-    session = AsyncMock()
+    session = MagicMock()
     session.flush = AsyncMock()
 
     entry = await record_audit_event(
@@ -31,7 +31,7 @@ async def test_record_audit_event_basic():
 @pytest.mark.asyncio
 async def test_record_audit_event_no_prompt_content():
     """Audit entries should not require or store prompt content."""
-    session = AsyncMock()
+    session = MagicMock()
     session.flush = AsyncMock()
 
     entry = await record_audit_event(session, action="index.activated")
@@ -41,7 +41,7 @@ async def test_record_audit_event_no_prompt_content():
 @pytest.mark.asyncio
 async def test_record_audit_event_system_actor():
     """actor_user_id may be None for system-initiated events."""
-    session = AsyncMock()
+    session = MagicMock()
     session.flush = AsyncMock()
 
     entry = await record_audit_event(session, action="index.quality_check_failed")

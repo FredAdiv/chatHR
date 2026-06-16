@@ -21,14 +21,19 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    credentials_exc = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
     try:
         user_id = decode_token(token)
     except jwt.PyJWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+        raise credentials_exc
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        raise credentials_exc
 
     result = await db.execute(
         select(User)
-        .where(User.id == uuid.UUID(user_id))
+        .where(User.id == user_uuid)
         .options(selectinload(User.user_roles).selectinload(UserRole.role))
     )
     user = result.scalar_one_or_none()

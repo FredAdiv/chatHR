@@ -28,10 +28,8 @@ async def login(
     )
     user = result.scalar_one_or_none()
 
-    if not user or not user.password_hash or not verify_password(form.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user")
+    if not user or not user.is_active or not user.password_hash or not verify_password(form.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
     user.last_login_at = datetime.now(timezone.utc)
     await record_audit_event(db, action="user.login", actor_user_id=user.id, target_type="user", target_id=str(user.id))
