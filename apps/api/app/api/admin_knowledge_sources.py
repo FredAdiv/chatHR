@@ -98,7 +98,7 @@ def _ks_dict(source: KnowledgeSource) -> dict:
 @router.get("", response_model=list[KnowledgeSourceResponse])
 async def list_knowledge_sources(
     is_active: bool | None = Query(default=None),
-    authority_level: int | None = Query(default=None),
+    authority_level: int | None = Query(default=None, ge=_AUTHORITY_MIN, le=_AUTHORITY_MAX),
     source_type: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     _actor: User = Depends(require_any_role(_KS_ROLES)),

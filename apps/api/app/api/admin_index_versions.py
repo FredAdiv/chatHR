@@ -27,6 +27,7 @@ _ARCHIVABLE_STATUSES = {"ready", "quality_check_failed"}
 class IndexVersionCreate(BaseModel):
     version_label: str
     embedding_model: str
+    # Must not contain prompts, secrets, tokens, PII, or raw source content
     metadata_json: dict | None = None
 
     @field_validator("version_label", "embedding_model")
@@ -142,10 +143,11 @@ async def mark_index_version_quality_failed(
     iv = await db.get(IndexVersion, version_id)
     if not iv:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Index version not found")
-    if iv.status == "active":
+    _QUALITY_FAIL_ALLOWED = {"building", "ready"}
+    if iv.status not in _QUALITY_FAIL_ALLOWED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot mark an active index version as quality failed",
+            detail=f"Cannot mark index version with status '{iv.status}' as quality failed (allowed: building, ready)",
         )
     iv.status = "quality_check_failed"
     await record_audit_event(

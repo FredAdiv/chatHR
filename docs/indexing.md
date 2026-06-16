@@ -31,6 +31,7 @@ quality_check_failed  archived ←───────────────�
 3. **At most one version is `active` at any time.** Activating a `ready` version automatically archives the currently active version.
 4. **The active version cannot be archived directly.** To replace the active version, activate a newer `ready` version — this archives the old one automatically.
 5. **Quality check failure is represented only by `mark-quality-failed` in MVP.** Real automated quality checks are future work.
+6. **Active index uniqueness is enforced in application code only (MVP).** The `activate` endpoint archives any existing active version before setting the new one. Before concurrent indexing or production-scale use, add a DB-level partial unique index (`CREATE UNIQUE INDEX ... WHERE status = 'active'`) or an equivalent locking strategy to prevent race conditions.
 
 ## Roles Allowed
 
@@ -67,6 +68,7 @@ All endpoints require `knowledge_admin` or `system_admin` role.
 
 - `status` is always set to `building` on create. Clients cannot set a different status.
 - `created_by_user_id` is set to the requesting user automatically.
+- **`metadata_json` safety:** This field must not contain prompts, secrets, tokens, PII, raw source content, or model outputs. It is intended only for administrative metadata such as build notes, tool versions, or run identifiers.
 
 ### Response Fields
 

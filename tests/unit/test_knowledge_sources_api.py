@@ -249,3 +249,53 @@ async def test_activate_sets_is_active_true():
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
+
+
+# ── authority_level query filter validation (Fix 1) ───────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_authority_level_0_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/knowledge-sources?authority_level=0")
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_list_authority_level_6_returns_422():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/knowledge-sources?authority_level=6")
+        assert r.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_list_authority_level_1_returns_200():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_list([])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/knowledge-sources?authority_level=1")
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_list_without_authority_level_returns_200():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_list([])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/knowledge-sources")
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)

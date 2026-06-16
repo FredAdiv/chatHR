@@ -333,3 +333,80 @@ async def test_archive_building_version_returns_409():
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
+
+
+# ── mark-quality-failed allowed statuses (Fix 2) ─────────────────────────────
+
+@pytest.mark.asyncio
+async def test_mark_quality_failed_from_building_succeeds():
+    iv = _iv(status="building")
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_get(iv)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/mark-quality-failed")
+        assert r.status_code == 200
+        assert iv.status == "quality_check_failed"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_mark_quality_failed_from_ready_succeeds():
+    iv = _iv(status="ready")
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_get(iv)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/mark-quality-failed")
+        assert r.status_code == 200
+        assert iv.status == "quality_check_failed"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_mark_quality_failed_from_archived_returns_409():
+    iv = _iv(status="archived")
+    original_status = iv.status
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_get(iv)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/mark-quality-failed")
+        assert r.status_code == 409
+        assert iv.status == original_status
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_mark_quality_failed_from_active_returns_409():
+    iv = _iv(status="active")
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_get(iv)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/mark-quality-failed")
+        assert r.status_code == 409
+        assert iv.status == "active"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_mark_quality_failed_from_quality_check_failed_returns_409():
+    iv = _iv(status="quality_check_failed")
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_get(iv)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/mark-quality-failed")
+        assert r.status_code == 409
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)

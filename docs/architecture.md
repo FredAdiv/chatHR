@@ -202,9 +202,11 @@ User → Next.js → FastAPI (auth + RBAC check)
 | docs/indexing.md | ✅ Done |
 
 **Constraints enforced:**
-- At most one active index version at any time
+- At most one active index version at any time (enforced in application code during activation; DB-level partial unique index is future work)
 - Active index version cannot be archived directly — only replaced by activating a newer `ready` version
-- Only `ready` versions can be activated
+- Only `ready` versions can be activated; `building`, `quality_check_failed`, and `archived` cannot
+- `mark-quality-failed` allowed only from `building` or `ready`; blocked on `active`, `archived`, and `quality_check_failed`
+- authority_level query filter on GET /admin/knowledge-sources validated 1-5 at API level
 - `knowledge_admin` and `system_admin` only — all checks server-side
 
 ### Phase 6 — Pending
