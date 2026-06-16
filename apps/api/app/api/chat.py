@@ -379,13 +379,14 @@ async def send_message(
     citation_list: list[CitationResponse] = []
     for chunk in chunks:
         c = chunk.citation
+        safe_citation_url = c.source_url if c.source_url and not c.source_url.startswith("upload://") else None
         citation_data: dict[str, Any] = {
             "chunk_id": chunk.chunk_id,
             "knowledge_source_id": c.knowledge_source_id,
             "knowledge_source_name": c.knowledge_source_name,
             "authority_level": c.authority_level,
             "source_title": c.source_title,
-            "source_url": c.source_url,
+            "source_url": safe_citation_url,
             "section_title": c.section_title,
             "page_number": c.page_number,
             "document_type": c.document_type,
@@ -405,7 +406,7 @@ async def send_message(
             knowledge_source_name=c.knowledge_source_name,
             authority_level=c.authority_level,
             source_title=c.source_title,
-            source_url=c.source_url,
+            source_url=safe_citation_url,
             section_title=c.section_title,
             page_number=c.page_number,
             document_type=c.document_type,
