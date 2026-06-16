@@ -101,6 +101,13 @@ async def test_missing_index_version_raises():
         await embed_chunks_for_index_version(db, uuid.uuid4())
 
 
+@pytest.mark.asyncio
+async def test_null_index_version_id_raises():
+    db = _make_db()
+    with pytest.raises(ValueError, match="index_version_id is required"):
+        await embed_chunks_for_index_version(db, None)
+
+
 # ── Success path ──────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

@@ -13,9 +13,13 @@ import math
 class FakeLocalProvider:
     """Deterministic fake embeddings. Not for production use."""
 
+    _MAX_DIMENSION = 4096
+
     def __init__(self, dimension: int = 16, model_name: str = "fake-local-v1") -> None:
         if dimension < 1:
             raise ValueError("dimension must be at least 1")
+        if dimension > self._MAX_DIMENSION:
+            raise ValueError(f"dimension must be at most {self._MAX_DIMENSION}")
         self._dimension = dimension
         self._model_name = model_name
 

@@ -38,6 +38,9 @@ async def embed_chunks_for_index_version(
     """
     now = datetime.now(timezone.utc)
 
+    if index_version_id is None:
+        raise ValueError("index_version_id is required — embeddings cannot be generated without an index version")
+
     index_version = await db.get(IndexVersion, index_version_id)
     if not index_version:
         raise ValueError(f"IndexVersion {index_version_id} not found")

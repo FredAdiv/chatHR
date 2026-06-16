@@ -82,6 +82,17 @@ def test_invalid_dimension_raises():
         FakeLocalProvider(dimension=0)
 
 
+def test_dimension_above_max_raises():
+    with pytest.raises(ValueError, match="at most"):
+        FakeLocalProvider(dimension=4097)
+
+
+def test_dimension_at_max_is_allowed():
+    provider = FakeLocalProvider(dimension=4096)
+    v = provider.embed_texts(["test"])[0]
+    assert len(v) == 4096
+
+
 # ── No external calls ─────────────────────────────────────────────────────────
 
 def test_no_external_calls(monkeypatch):
