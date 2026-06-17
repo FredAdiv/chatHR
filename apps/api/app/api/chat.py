@@ -495,12 +495,33 @@ async def send_message(
         if parsed is not None:
             answer_content, answer_blocks = parsed
 
-    # 7c. Detect no-source refusal — clear sources so UI doesn't show them
+    # 7c. Detect no-source refusal — try text fallback when vector was used
     has_sufficient_sources = True
     if _is_no_source_answer(answer_content):
-        has_sufficient_sources = False
-        chunks = []
-        answer_blocks = []
+        if retrieval_mode == "vector":
+            try:
+                fallback_chunks = await retrieve_chunks_text_fallback(
+                    db=db,
+                    query_text=body.content,
+                    index_version_id=index_version.id,
+                    context_type=conv.context_type,
+                    limit=body.limit,
+                )
+            except Exception:
+                fallback_chunks = []
+            if fallback_chunks:
+                chunks = fallback_chunks
+                retrieval_mode = "text_fallback"
+                answer_content, raw_blocks = synthesize_structured_answer(chunks)
+                answer_blocks = [AnswerBlock(**b) for b in raw_blocks]
+            else:
+                has_sufficient_sources = False
+                chunks = []
+                answer_blocks = []
+        else:
+            has_sufficient_sources = False
+            chunks = []
+            answer_blocks = []
 
     # 7d. Normalize answer text — strip HTML and decode entities
     answer_content = _normalize_answer_text(answer_content)
