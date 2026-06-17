@@ -512,8 +512,33 @@ async def send_message(
             if fallback_chunks:
                 chunks = fallback_chunks
                 retrieval_mode = "text_fallback"
-                answer_content, raw_blocks = synthesize_structured_answer(chunks)
-                answer_blocks = [AnswerBlock(**b) for b in raw_blocks]
+                # Re-run LLM with the relevant chunks; fall back to extractive if LLM fails
+                try:
+                    fallback_messages = build_chat_prompt(
+                        user_question=body.content,
+                        retrieval_results=chunks,
+                        context_type=conv.context_type,
+                    )
+                    fallback_llm_response = await generate_with_gateway(
+                        messages=fallback_messages,
+                        purpose="chat_answer",
+                        user_id=current_user.id,
+                        db=db,
+                    )
+                    fallback_llm_content = fallback_llm_response.content
+                except (LLMProviderError, PrivacyGuardBlockedError, Exception):
+                    fallback_llm_content = ""
+
+                if is_usable_llm_response(fallback_llm_content) and not _is_no_source_answer(fallback_llm_content):
+                    answer_content = fallback_llm_content
+                    parsed = _parse_llm_structured_answer(answer_content, chunks)
+                    if parsed is not None:
+                        answer_content, answer_blocks = parsed
+                    else:
+                        answer_blocks = []
+                else:
+                    answer_content, raw_blocks = synthesize_structured_answer(chunks)
+                    answer_blocks = [AnswerBlock(**b) for b in raw_blocks]
             else:
                 has_sufficient_sources = False
                 chunks = []
