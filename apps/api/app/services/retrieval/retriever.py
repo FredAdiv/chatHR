@@ -9,13 +9,21 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select, text
+import operator as _operator
+from functools import reduce
+
+from sqlalchemy import case, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.chunk_embedding import ChunkEmbedding
+from app.db.models.document_chunk import DocumentChunk
 from app.db.models.index_version import IndexVersion
+from app.db.models.knowledge_source import KnowledgeSource
+from app.db.models.parsed_document import ParsedDocument
+from app.db.models.source_document import SourceDocument
 from app.services.embeddings.gateway import embed_with_gateway
 from app.services.retrieval.citation import CitationMetadata, build_citation_metadata
-from app.services.retrieval.reranker import rerank_candidates
+from app.services.retrieval.reranker import normalize_hebrew_text, rerank_candidates
 
 # Allowed context_type values matching knowledge_sources.context_type constraint
 ALLOWED_CONTEXT_TYPES = frozenset({"government_ministries", "defense_system", "health_system"})
@@ -199,5 +207,133 @@ async def retrieve_chunks(
         if min_score is not None and chunk.score < min_score:
             continue
         results.append(chunk)
+
+    return results
+
+
+# ── Text fallback retrieval (MVP/demo only) ────────────────────────────────────
+
+# Superset of the reranker's stop-words; also covers common Hebrew question words.
+_FALLBACK_STOP_WORDS: frozenset[str] = frozenset({
+    "מה", "מי", "על", "של", "את", "עם", "לפי", "לגבי", "האם",
+    "הוא", "היא", "הם", "הן", "זה", "זו", "יש", "אין", "כי",
+    "לא", "גם", "רק", "כל", "אנו", "אני", "אתם", "אתה", "זאת",
+    "הרי", "כן", "כך", "אז", "אם", "עד", "אך", "אלה", "אלו",
+    "בין", "אצל", "שם", "פה", "כאן", "שכן", "לכן",
+    "בו", "בה", "לו", "לה", "להם", "להן",
+    "כ", "ב", "ל", "מ", "ו", "ה", "א",
+})
+
+
+def _extract_fallback_terms(query: str) -> list[str]:
+    """Return meaningful search terms from a Hebrew query for text-fallback retrieval.
+
+    Uses normalize_hebrew_text (strip nikud/geresh/maqaf), removes stop words, keeps >= 3 chars.
+    query_text is NOT stored or logged.
+    """
+    normalized = normalize_hebrew_text(query)
+    tokens = normalized.split()
+    return [t for t in tokens if len(t) >= 3 and t not in _FALLBACK_STOP_WORDS]
+
+
+async def retrieve_chunks_text_fallback(
+    db: AsyncSession,
+    query_text: str,
+    index_version_id: uuid.UUID,
+    context_type: str | None = None,
+    limit: int = 5,
+) -> list[RetrievedChunk]:
+    """Text-based fallback retrieval using ILIKE — MVP/demo only.
+
+    Runs only when vector retrieval returns no results.  Uses safe parameterized
+    SQLAlchemy queries (no string interpolation).  Respects active index version,
+    context_type (matching OR null), and authority ordering.  Returns the same
+    RetrievedChunk shape as retrieve_chunks.  query_text is NOT stored or logged.
+    """
+    terms = _extract_fallback_terms(query_text)
+    if not terms:
+        return []
+
+    # Build per-term score expressions: exact phrase = 2 pts, each term = 1 pt.
+    score_exprs = []
+    stripped = query_text.strip()
+    if 3 <= len(stripped) <= 80:
+        score_exprs.append(case((DocumentChunk.chunk_text.ilike(f"%{stripped}%"), 2), else_=0))
+    for term in terms:
+        score_exprs.append(case((DocumentChunk.chunk_text.ilike(f"%{term}%"), 1), else_=0))
+
+    text_score = reduce(_operator.add, score_exprs)
+
+    # WHERE: phrase OR any individual term matches.
+    any_conditions = [DocumentChunk.chunk_text.ilike(f"%{term}%") for term in terms]
+    if 3 <= len(stripped) <= 80:
+        any_conditions.append(DocumentChunk.chunk_text.ilike(f"%{stripped}%"))
+    any_match = or_(*any_conditions)
+
+    q = (
+        select(
+            DocumentChunk.id.label("chunk_id"),
+            DocumentChunk.chunk_text,
+            DocumentChunk.chunk_index,
+            DocumentChunk.section_title,
+            DocumentChunk.page_number,
+            ParsedDocument.id.label("parsed_document_id"),
+            SourceDocument.id.label("source_document_id"),
+            SourceDocument.url.label("source_url"),
+            SourceDocument.title.label("source_title"),
+            SourceDocument.document_type,
+            KnowledgeSource.id.label("knowledge_source_id"),
+            KnowledgeSource.name.label("knowledge_source_name"),
+            KnowledgeSource.authority_level,
+            text_score.label("text_score"),
+        )
+        .join(ParsedDocument, DocumentChunk.parsed_document_id == ParsedDocument.id)
+        .join(SourceDocument, DocumentChunk.source_document_id == SourceDocument.id)
+        .join(KnowledgeSource, SourceDocument.knowledge_source_id == KnowledgeSource.id)
+        .join(
+            ChunkEmbedding,
+            (ChunkEmbedding.document_chunk_id == DocumentChunk.id)
+            & (ChunkEmbedding.index_version_id == index_version_id)
+            & (ChunkEmbedding.status == "embedded"),
+        )
+        .where(any_match)
+        .order_by(
+            text_score.desc(),
+            KnowledgeSource.authority_level.asc(),
+            DocumentChunk.chunk_index.asc(),
+        )
+        .limit(limit)
+    )
+
+    if context_type is not None:
+        q = q.where(
+            (KnowledgeSource.context_type == context_type)
+            | KnowledgeSource.context_type.is_(None)
+        )
+
+    rows = (await db.execute(q)).all()
+
+    results: list[RetrievedChunk] = []
+    for row in rows:
+        citation = build_citation_metadata(
+            chunk_index=row.chunk_index,
+            section_title=row.section_title,
+            page_number=row.page_number,
+            source_url=row.source_url,
+            source_title=row.source_title,
+            document_type=row.document_type,
+            knowledge_source_id=str(row.knowledge_source_id),
+            knowledge_source_name=row.knowledge_source_name,
+            authority_level=row.authority_level,
+        )
+        results.append(RetrievedChunk(
+            chunk_id=str(row.chunk_id),
+            chunk_text=row.chunk_text,
+            parsed_document_id=str(row.parsed_document_id),
+            source_document_id=str(row.source_document_id),
+            distance=-1.0,
+            score=1.0,
+            citation=citation,
+        ))
 
     return results

@@ -36,7 +36,7 @@ from app.services.guardrails.input_guard import check_feedback_comment, check_us
 from app.services.llm_gateway.gateway import generate_with_gateway
 from app.services.llm_gateway.protocol import LLMProviderError, PrivacyGuardBlockedError
 from app.services.privacy.guard import check_text
-from app.services.retrieval.retriever import retrieve_chunks
+from app.services.retrieval.retriever import retrieve_chunks, retrieve_chunks_text_fallback
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -409,6 +409,7 @@ async def send_message(
         conv.title = _generate_conversation_title(body.content)
 
     # 4. Retrieve relevant chunks
+    retrieval_mode = "vector"
     try:
         chunks = await retrieve_chunks(
             db=db,
@@ -419,6 +420,21 @@ async def send_message(
         )
     except Exception:
         chunks = []
+
+    # 4b. Text fallback for MVP/demo — runs only when vector retrieval finds nothing.
+    if not chunks:
+        try:
+            chunks = await retrieve_chunks_text_fallback(
+                db=db,
+                query_text=body.content,
+                index_version_id=index_version.id,
+                context_type=conv.context_type,
+                limit=body.limit,
+            )
+            if chunks:
+                retrieval_mode = "text_fallback"
+        except Exception:
+            chunks = []
 
     # 5. No sources → safe refusal, no LLM call
     if not chunks:
@@ -506,6 +522,7 @@ async def send_message(
         content=answer_content,
         metadata_json={
             "answer_mode": "retrieval_augmented" if chunks else "no_sources",
+            "retrieval_mode": retrieval_mode if chunks else "none",
             "retrieval_count": len(chunks),
             "source_chunk_ids": source_chunk_ids,
             "index_version_id": str(index_version.id),

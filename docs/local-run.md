@@ -393,6 +393,18 @@ Authorization: Bearer <token>
 
 `knowledge_admin` או `system_admin`.
 
+## הערה: fake-local embeddings ו-text fallback
+
+בסביבת dev מוגדר ברירת מחדל `EMBEDDING_PROVIDER=fake-local`. ה-embeddings הם וקטורים אקראיים ולא סמנטיים — כלומר, ה-vector retrieval לא יחזיר תוצאות רלוונטיות לשאלות HR אמיתיות.
+
+לצורכי MVP ו-demo מקומי, המערכת כוללת **text fallback retrieval**: כאשר ה-vector retrieval מחזיר תוצאות ריקות, נעשה חיפוש ILIKE על טקסט הקטעים (chunk_text). הfallback:
+- מחלץ מילות מפתח מהשאלה (מסיר stop words עבריות, שומר מילים עם ≥3 תווים)
+- מחפש phrase מדויק + כל מילה בנפרד
+- מכבד context_type ורמת סמכות
+- מחזיר את אותה מבנה `RetrievedChunk` כמו vector retrieval
+
+**לפרודקשן:** החלף `EMBEDDING_PROVIDER=fake-local` בספק אמיתי (למשל `openai` עם `OPENAI_API_KEY`). עם embeddings סמנטיים אמיתיים, ה-vector retrieval יפעל כראוי וה-text fallback לא יופעל.
+
 ## אבחון מצב RAG
 
 לבדיקה מהירה של מצב האינדקס, הספירות, ומקורות הידע הפעילים:
