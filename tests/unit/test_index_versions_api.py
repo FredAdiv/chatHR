@@ -412,3 +412,108 @@ async def test_mark_quality_failed_from_quality_check_failed_returns_409():
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
+
+
+# ── rollback ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_rollback_archived_version_succeeds():
+    actor = _user_with_roles("knowledge_admin")
+    iv = _iv(status="archived")
+    app.dependency_overrides[get_current_active_user] = lambda: actor
+    app.dependency_overrides[get_db] = _db_for_activate(iv, current_active_ivs=[])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/rollback")
+        assert r.status_code == 200
+        assert iv.status == "active"
+        assert iv.activated_by_user_id == actor.id
+        assert iv.activated_at is not None
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_rollback_archives_current_active_version():
+    actor = _user_with_roles("knowledge_admin")
+    target_iv = _iv(status="archived")
+    current_active = _iv(status="active")
+    app.dependency_overrides[get_current_active_user] = lambda: actor
+    app.dependency_overrides[get_db] = _db_for_activate(target_iv, current_active_ivs=[current_active])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/rollback")
+        assert r.status_code == 200
+        assert target_iv.status == "active"
+        assert current_active.status == "archived"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_rollback_active_version_returns_409():
+    iv = _iv(status="active")
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_activate(iv)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/rollback")
+        assert r.status_code == 409
+        assert iv.status == "active"
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_rollback_ready_version_returns_409():
+    iv = _iv(status="ready")
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_activate(iv)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/rollback")
+        assert r.status_code == 409
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_rollback_building_version_returns_409():
+    iv = _iv(status="building")
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_activate(iv)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/rollback")
+        assert r.status_code == 409
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_rollback_nonexistent_version_returns_404():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_activate(None)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/rollback")
+        assert r.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_rollback_requires_knowledge_admin():
+    app.dependency_overrides[get_current_active_user] = _auth(["chat_user"])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.patch(f"/admin/index-versions/{uuid.uuid4()}/rollback")
+        assert r.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)

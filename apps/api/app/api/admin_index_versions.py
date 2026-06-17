@@ -229,6 +229,54 @@ async def activate_index_version(
     return _iv_dict(iv)
 
 
+@router.patch("/{version_id}/rollback", response_model=IndexVersionResponse)
+async def rollback_index_version(
+    version_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_any_role(_IV_ROLES)),
+):
+    """Restore an archived index version to active, archiving the current active version.
+
+    This is the emergency path for reverting a bad activation. Only archived versions
+    can be rolled back — use the normal activate flow for ready versions.
+    """
+    iv = await db.get(IndexVersion, version_id)
+    if not iv:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Index version not found")
+    if iv.status != "archived":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Only archived index versions can be rolled back (current status: {iv.status})",
+        )
+
+    # Archive any currently active version
+    active_result = await db.execute(select(IndexVersion).where(IndexVersion.status == "active"))
+    for active_iv in active_result.scalars().all():
+        active_iv.status = "archived"
+        await record_audit_event(
+            db,
+            action="index_version_archived",
+            actor_user_id=actor.id,
+            target_type="index_version",
+            target_id=str(active_iv.id),
+            metadata_json={"reason": "replaced_by_rollback", "rollback_target_id": str(version_id)},
+        )
+
+    now = datetime.now(timezone.utc)
+    iv.status = "active"
+    iv.activated_by_user_id = actor.id
+    iv.activated_at = now
+    await record_audit_event(
+        db,
+        action="index_version_rolled_back",
+        actor_user_id=actor.id,
+        target_type="index_version",
+        target_id=str(version_id),
+    )
+    await db.commit()
+    return _iv_dict(iv)
+
+
 @router.patch("/{version_id}/archive", response_model=IndexVersionResponse)
 async def archive_index_version(
     version_id: uuid.UUID,
