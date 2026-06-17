@@ -393,6 +393,33 @@ Authorization: Bearer <token>
 
 `knowledge_admin` או `system_admin`.
 
+## אבחון מצב RAG
+
+לבדיקה מהירה של מצב האינדקס, הספירות, ומקורות הידע הפעילים:
+
+```bash
+docker compose exec api python -m scripts.inspect_rag_state
+```
+
+לחיפוש מילות מפתח בתוכן הקטעים (בלי semantic search):
+
+```bash
+docker compose exec api python -m scripts.inspect_rag_state --query "קצובת נסיעה"
+docker compose exec api python -m scripts.inspect_rag_state --query "נסיעה" --limit 10
+docker compose exec api python -m scripts.inspect_rag_state --source-title "תקשי״ר"
+```
+
+הפלט כולל:
+- גרסאות אינדקס פעילות (id, label, status, created_at, activated_at, embedding_model)
+- ספירות: knowledge_sources, source_documents, parsed_documents, document_chunks, chunk_embeddings, embedded (active index)
+- מקורות ידע אחרונים
+- תוצאות חיפוש טקסט עם קטעים קצרים (עד 300 תווים)
+- הנחיות אבחון:
+  - **אין chunks** → loader/parser לא הורץ
+  - **יש chunks אך אין match לחיפוש** → אי-התאמה בנוסח או בעיה בפרסינג
+  - **יש text match אך אין embedded** → שלב ה-embedding לא הושלם
+  - **הכל קיים אך הצ'אט מחזיר no-source** → ה-embeddings לא סמנטיים (fake-local), שקול מעבר לספק אמיתי
+
 ## Stopping services
 
 ```bash
