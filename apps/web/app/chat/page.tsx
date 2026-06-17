@@ -44,6 +44,7 @@ interface DisplayMessage {
   content: string;
   sources: CitationResponse[];
   answer_blocks?: AnswerBlock[];
+  has_sufficient_sources?: boolean;
 }
 
 interface FeedbackState {
@@ -53,17 +54,27 @@ interface FeedbackState {
   showComment: boolean;
 }
 
+function _unwrapDetail(raw: unknown): Record<string, unknown> | string | null {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    if ("detail" in r) return r.detail as Record<string, unknown> | string;
+    return r;
+  }
+  return null;
+}
+
 function safeErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401 || err.status === 403) return "__redirect_login__";
     if (err.status === 422) {
-      const d = err.detail as { error?: string; public_message?: string } | string;
-      if (typeof d === "object") {
-        if (d?.error === "privacy_guard_blocked") {
-          return "ההודעה נחסמה: נמצאו פרטים מזהים אישיים. הסר מידע אישי ונסה שנית.";
+      const d = _unwrapDetail(err.detail);
+      if (typeof d === "object" && d !== null) {
+        if (d.error === "privacy_guard_blocked") {
+          return 'אין להזין פרטים אישיים או מזהים של עובדים. נא לנסח את השאלה באופן כללי, ללא מספר זהות, שם מלא, כתובת דוא"ל, טלפון, כתובת, פרטי בריאות או פרטי משמעת.';
         }
-        if (d?.error === "guardrail_blocked" && d?.public_message) {
-          return d.public_message;
+        if (d.error === "guardrail_blocked" && d.public_message) {
+          return String(d.public_message);
         }
       }
       return "הבקשה אינה תקינה. אנא נסה שנית.";
@@ -251,6 +262,7 @@ export default function ChatPage() {
             content: data.message.content,
             sources: data.sources,
             answer_blocks: data.answer_blocks ?? [],
+            has_sufficient_sources: data.has_sufficient_sources,
           },
         ];
       });
@@ -504,10 +516,11 @@ export default function ChatPage() {
                           textOverflow: "ellipsis",
                         }}
                       >
-                        {conv.title || CONTEXT_LABELS[conv.context_type as ContextType] || conv.context_type}
+                        {conv.title || "שיחה חדשה"}
                       </div>
-                      <div style={{ color: "#9ca3af", fontSize: "0.73rem" }}>
-                        {formatDate(conv.created_at)}
+                      <div style={{ color: "#9ca3af", fontSize: "0.7rem", display: "flex", justifyContent: "space-between" }}>
+                        <span>{CONTEXT_LABELS[conv.context_type as ContextType] ?? conv.context_type}</span>
+                        <span>{formatDate(conv.created_at)}</span>
                       </div>
                     </button>
                   );
@@ -602,7 +615,7 @@ export default function ChatPage() {
                           return (
                             <div key={block.block_id}>
                               <span style={{ whiteSpace: "pre-wrap" }}>{block.text}</span>
-                              {blockCitations.length > 0 && (
+                              {blockCitations.length > 0 && msg.has_sufficient_sources !== false && (
                                 <span style={{ display: "inline-flex", gap: "0.3rem", flexWrap: "wrap", marginRight: "0.4rem" }}>
                                   {blockCitations.map((s) => (
                                     <button
@@ -640,8 +653,8 @@ export default function ChatPage() {
                     )}
                   </div>
 
-                  {/* Sources */}
-                  {!isUser && msg.sources.length > 0 && (
+                  {/* Sources — hidden when answer is a no-source refusal */}
+                  {!isUser && msg.sources.length > 0 && msg.has_sufficient_sources !== false && (
                     <div style={{ marginTop: "0.5rem", alignSelf: "flex-end", maxWidth: "72%" }}>
                       <span style={{ fontSize: "0.78rem", color: "#374151", fontWeight: "bold" }}>
                         מקורות:

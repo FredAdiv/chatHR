@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-FindingType = Literal["email", "phone", "israeli_id", "employee_number", "sensitive_context"]
+FindingType = Literal["email", "phone", "israeli_id", "employee_number", "sensitive_context", "full_name_context"]
 Severity = Literal["low", "medium", "high"]
 
 
@@ -48,6 +48,41 @@ _EMPLOYEE_NUM_RE = re.compile(
     r')',
     re.IGNORECASE,
 )
+
+# HR employment context words that indicate a specific person is being referenced
+_HR_EMPLOYMENT_CONTEXT_WORDS = frozenset([
+    "עובד", "עובדת", "לעובד", "לעובדת", "עובדים", "עובדות",
+    "מועסק", "מועסקת", "פועל", "פועלת",
+    "מפוטר", "מפוטרת", "פוטר", "פוטרה",
+    "הזכויות", "זכויותיו", "זכויותיה",
+    "שכרו", "שכרה",
+    "מינויו", "מינויה",
+])
+
+# Hebrew words that are NOT personal names — prevent matching general HR policy text
+_HEBREW_NON_NAME_WORDS = frozenset([
+    # Function words
+    "מה", "מי", "על", "לא", "עם", "אם", "כי", "כן", "כך", "הוא", "היא", "הם", "הן",
+    "זה", "זו", "זאת", "אלה", "אבל", "גם", "כבר", "רק", "עוד", "אין", "יש", "כל",
+    "של", "את", "אל", "בין", "לפי", "לפני", "אחרי", "כאשר", "מתי", "איפה",
+    "למה", "כיצד", "כדי", "דרך", "כמו", "אלא", "אשר", "שהוא", "שהיא",
+    "האם", "מהי", "מהו", "מהם", "כמה",
+    "אחד", "אחת", "שני", "שתי", "שלושה", "ראשון", "ראשונה",
+    # HR/policy nouns appearing in standard questions
+    "חלות", "הוראות", "תקנות", "הסכם", "סעיף", "נוהל", "כלל",
+    "קצובת", "נסיעה", "תשלום", "קצובה", "חופשה", "מחלה",
+    "עבודה", "משרה", "תפקיד", "ניהול", "הדרגה", "דרגה",
+    "שנים", "חודשים", "ימים", "שעות", "שבועות", "תקופה", "תקופת",
+    "ממשלתי", "ממשלתית", "ציבורי", "ציבורית", "מדינה", "ממשרד",
+    "הממשלה", "המדינה", "השירות", "הציבורי",
+    "תקשיר", "הוראה", "הנחיה", "פקודה", "חוק", "תקנה",
+    "זכויות", "חובות", "תנאים", "הטבות", "גמלה", "קצבה",
+    "ביטוח", "פנסיה", "תגמול", "מענק", "פיצויים",
+    "מספר", "הערות", "שאלה", "תשובה", "בקשה", "פנייה",
+    "כפוף", "חייב", "רשאי", "מחויב", "זכאי", "זכאית",
+    "שנות", "השכלה", "הכשרה", "ניסיון", "מיומנות",
+    "עבודתו", "עבודתה", "משכורת", "ממשכורת",
+])
 
 # Sensitive health and discipline keywords (Hebrew)
 _SENSITIVE_CONTEXT_RE = re.compile(
@@ -91,6 +126,23 @@ def _validate_israeli_id(digits: str) -> bool:
             n -= 9
         total += n
     return total % 10 == 0
+
+
+def _detect_full_name_with_hr_context(text: str) -> list[Finding]:
+    """Detect a potential first+last name adjacent to HR employment context (HIGH severity)."""
+    words = re.findall(r'[א-ת]+', text)
+    if not (set(words) & _HR_EMPLOYMENT_CONTEXT_WORDS):
+        return []
+    for i in range(len(words) - 1):
+        w1, w2 = words[i], words[i + 1]
+        if not (3 <= len(w1) <= 7 and 3 <= len(w2) <= 7):
+            continue
+        if w1 in _HEBREW_NON_NAME_WORDS or w2 in _HEBREW_NON_NAME_WORDS:
+            continue
+        if w1 in _HR_EMPLOYMENT_CONTEXT_WORDS or w2 in _HR_EMPLOYMENT_CONTEXT_WORDS:
+            continue
+        return [Finding("full_name_context", "high", None, None, None)]
+    return []
 
 
 def _build_redacted(text: str, replacements: list[tuple[int, int, str]]) -> str:
@@ -145,6 +197,12 @@ def check_text(text: str) -> PrivacyCheckResult:
     for m in _SENSITIVE_CONTEXT_RE.finditer(text):
         findings.append(Finding("sensitive_context", "medium", m.start(), m.end(), m.group()))
         replacements.append((m.start(), m.end(), "[REDACTED:sensitive_context]"))
+
+    # Full name + HR employment context → high severity (blocks)
+    for f in _detect_full_name_with_hr_context(text):
+        findings.append(f)
+        if f.span_start is not None and f.span_end is not None:
+            replacements.append((f.span_start, f.span_end, "[REDACTED:full_name]"))
 
     has_high = any(f.severity == "high" for f in findings)
     redacted = _build_redacted(text, replacements) if replacements else None

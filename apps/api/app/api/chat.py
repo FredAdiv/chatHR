@@ -121,6 +121,7 @@ class SendMessageResponse(BaseModel):
     sources: list[CitationResponse]
     retrieval_count: int
     answer_blocks: list[AnswerBlock] = []
+    has_sufficient_sources: bool = True
 
 
 class FeedbackRequest(BaseModel):
@@ -215,6 +216,34 @@ async def _get_conversation_for_user(
     return conv
 
 
+_PRIVACY_USER_MESSAGE = (
+    'אין להזין פרטים אישיים או מזהים של עובדים. '
+    'נא לנסח את השאלה באופן כללי, ללא מספר זהות, שם מלא, '
+    'כתובת דוא"ל, טלפון, כתובת, פרטי בריאות או פרטי משמעת.'
+)
+
+_NO_SOURCE_PHRASE = "לא נמצא מקור רשמי מספיק ברור"
+
+import re as _re
+_PUNCT_STRIP = _re.compile(r'[^א-ת\s]')
+_MULTI_SPACE = _re.compile(r'\s+')
+
+
+def _generate_conversation_title(text: str) -> str:
+    """Derive a short Hebrew title from the first user message (no LLM call)."""
+    cleaned = _PUNCT_STRIP.sub(' ', text)
+    cleaned = _MULTI_SPACE.sub(' ', cleaned).strip()
+    words = [w for w in cleaned.split() if len(w) >= 2]
+    title = ' '.join(words[:7])
+    if len(title) > 40:
+        title = title[:40].rsplit(' ', 1)[0]
+    return title or 'שיחה חדשה'
+
+
+def _is_no_source_answer(text: str) -> bool:
+    return text.strip().startswith(_NO_SOURCE_PHRASE)
+
+
 def _build_privacy_block_response(guard_result: Any) -> dict:
     findings = [
         {"type": f.type, "severity": f.severity}
@@ -223,7 +252,7 @@ def _build_privacy_block_response(guard_result: Any) -> dict:
     ]
     return {
         "error": "privacy_guard_blocked",
-        "reason": guard_result.reason or "High-severity PII detected.",
+        "user_message": _PRIVACY_USER_MESSAGE,
         "findings": findings,
     }
 
@@ -358,6 +387,10 @@ async def send_message(
     db.add(user_msg)
     await db.flush()
 
+    # 3b. Auto-generate title from first user message if conversation has none
+    if conv.title is None:
+        conv.title = _generate_conversation_title(body.content)
+
     # 4. Retrieve relevant chunks
     try:
         chunks = await retrieve_chunks(
@@ -391,6 +424,7 @@ async def send_message(
             message=MessageResponse.from_orm(assistant_msg),
             sources=[],
             retrieval_count=0,
+            has_sufficient_sources=False,
         )
 
     # 6. Build transient prompt (never stored)
@@ -427,6 +461,13 @@ async def send_message(
         parsed = _parse_llm_structured_answer(answer_content, chunks)
         if parsed is not None:
             answer_content, answer_blocks = parsed
+
+    # 7c. Detect no-source refusal — clear sources so UI doesn't show them
+    has_sufficient_sources = True
+    if _is_no_source_answer(answer_content):
+        has_sufficient_sources = False
+        chunks = []
+        answer_blocks = []
 
     source_chunk_ids = [c.chunk_id for c in chunks]
 
@@ -491,6 +532,7 @@ async def send_message(
         sources=citation_list,
         retrieval_count=len(chunks),
         answer_blocks=answer_blocks,
+        has_sufficient_sources=has_sufficient_sources,
     )
 
 

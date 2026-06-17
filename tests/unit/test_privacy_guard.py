@@ -173,3 +173,46 @@ def test_medium_severity_alone_does_not_set_allowed_false():
     high_findings = [f for f in result.findings if f.severity == "high"]
     if not high_findings:
         assert result.allowed is True
+
+
+# ── Full name + HR context ────────────────────────────────────────────────────
+
+def test_full_name_with_hr_context_blocked():
+    result = check_text("דוד כהן עובד זמני")
+    assert result.allowed is False
+    assert any(f.type == "full_name_context" for f in result.findings)
+
+
+def test_full_name_in_rights_query_blocked():
+    result = check_text("מה הזכויות של דנה לוי")
+    assert result.allowed is False
+    assert any(f.type == "full_name_context" for f in result.findings)
+
+
+def test_full_name_with_employment_keyword_blocked():
+    result = check_text("לעובד ישראל ישראלי יש זכויות לחופשה")
+    assert result.allowed is False
+    assert any(f.type == "full_name_context" for f in result.findings)
+
+
+def test_full_name_without_hr_context_not_blocked():
+    result = check_text("דוד כהן הגיע לפגישה")
+    high = [f for f in result.findings if f.severity == "high"]
+    assert not high or not any(f.type == "full_name_context" for f in result.findings)
+
+
+def test_general_hr_policy_question_not_blocked():
+    result = check_text("מה הם כללי חופשה שנתית לעובדי מדינה?")
+    assert result.allowed is True
+
+
+def test_hr_term_pair_not_treated_as_full_name():
+    result = check_text("קצובת נסיעה לעובד ממשלתי")
+    assert result.allowed is True
+
+
+def test_matched_text_not_in_full_name_finding():
+    result = check_text("דוד כהן עובד זמני")
+    for f in result.findings:
+        if f.type == "full_name_context":
+            assert f.matched_text is None

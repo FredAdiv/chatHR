@@ -65,6 +65,7 @@ export interface SendMessageResponse {
   sources: CitationResponse[];
   retrieval_count: number;
   answer_blocks: AnswerBlock[];
+  has_sufficient_sources: boolean;
 }
 
 export interface FeedbackResponse {

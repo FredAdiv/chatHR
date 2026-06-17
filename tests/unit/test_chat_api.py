@@ -596,6 +596,184 @@ async def test_feedback_invalid_rating_returns_422():
         app.dependency_overrides.pop(get_current_active_user, None)
 
 
+# ── has_sufficient_sources ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_no_sources_returns_has_sufficient_sources_false():
+    """When retrieval returns no chunks, response must have has_sufficient_sources=False."""
+    dep, user = _auth(["chat_user"])
+    conv = _make_conv(user_id=user.id)
+    iv = _make_index_version()
+    db = _make_db(conv, iv)
+    app.dependency_overrides[get_current_active_user] = dep
+    app.dependency_overrides[get_db] = _db_dep(db)
+
+    with patch("app.api.chat.retrieve_chunks", new=AsyncMock(return_value=[])):
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(
+                    f"/chat/conversations/{conv.id}/messages",
+                    json={"content": "שאלה ללא מקור"},
+                )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["has_sufficient_sources"] is False
+            assert data["sources"] == []
+        finally:
+            app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_no_source_llm_answer_clears_sources_and_sets_flag_false():
+    """When LLM returns a no-source refusal phrase, sources must be hidden."""
+    dep, user = _auth(["chat_user"])
+    conv = _make_conv(user_id=user.id)
+    iv = _make_index_version()
+    db = _make_db(conv, iv)
+    app.dependency_overrides[get_current_active_user] = dep
+    app.dependency_overrides[get_db] = _db_dep(db)
+
+    chunk = _make_chunk()
+    from app.services.llm_gateway.protocol import LLMResponse
+    no_source_json = '{"answer_text": "לא נמצא מקור רשמי מספיק ברור כדי לענות.", "answer_blocks": []}'
+    mock_llm_response = LLMResponse(
+        content=no_source_json, model="gpt-4o", provider="openrouter",
+        input_token_count=10, output_token_count=5,
+    )
+
+    with patch("app.api.chat.retrieve_chunks", new=AsyncMock(return_value=[chunk])), \
+         patch("app.api.chat.generate_with_gateway", new=AsyncMock(return_value=mock_llm_response)):
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(
+                    f"/chat/conversations/{conv.id}/messages",
+                    json={"content": "עבודה מרחוק מחו״ל"},
+                )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["has_sufficient_sources"] is False
+            assert data["sources"] == []
+            assert data["answer_blocks"] == []
+        finally:
+            app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_grounded_answer_has_sufficient_sources_true():
+    """Normal grounded answer must have has_sufficient_sources=True."""
+    dep, user = _auth(["chat_user"])
+    conv = _make_conv(user_id=user.id)
+    iv = _make_index_version()
+    db = _make_db(conv, iv)
+    app.dependency_overrides[get_current_active_user] = dep
+    app.dependency_overrides[get_db] = _db_dep(db)
+
+    chunk = _make_chunk()
+    from app.services.llm_gateway.protocol import LLMResponse
+    mock_llm_response = LLMResponse(
+        content="[fake-local] תשובה", model="fake-local-v1", provider="fake-local",
+        input_token_count=5, output_token_count=3,
+    )
+
+    with patch("app.api.chat.retrieve_chunks", new=AsyncMock(return_value=[chunk])), \
+         patch("app.api.chat.generate_with_gateway", new=AsyncMock(return_value=mock_llm_response)):
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(
+                    f"/chat/conversations/{conv.id}/messages",
+                    json={"content": "על מי חלות הוראות התקשיר?"},
+                )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["has_sufficient_sources"] is True
+        finally:
+            app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_db, None)
+
+
+# ── Privacy block user_message ────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_privacy_block_includes_hebrew_user_message():
+    """Privacy block response must include Hebrew user_message field."""
+    dep, user = _auth(["chat_user"])
+    conv = _make_conv(user_id=user.id)
+    db = _make_db(conv)
+    app.dependency_overrides[get_current_active_user] = dep
+    app.dependency_overrides[get_db] = _db_dep(db)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                f"/chat/conversations/{conv.id}/messages",
+                json={"content": "אימייל שלי test@example.com"},
+            )
+        assert r.status_code == 422
+        detail = r.json()["detail"]
+        assert detail["error"] == "privacy_guard_blocked"
+        assert "user_message" in detail
+        assert "פרטים אישיים" in detail["user_message"]
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+# ── Conversation title auto-generation ────────────────────────────────────────
+
+def test_generate_conversation_title_basic():
+    from app.api.chat import _generate_conversation_title
+    title = _generate_conversation_title("מה הם כללי חופשה שנתית לעובדי מדינה?")
+    assert len(title) <= 40
+    assert title  # not empty
+
+
+def test_generate_conversation_title_capped():
+    from app.api.chat import _generate_conversation_title
+    long_text = "מה " * 30
+    title = _generate_conversation_title(long_text)
+    assert len(title) <= 40
+
+
+def test_generate_conversation_title_strips_punctuation():
+    from app.api.chat import _generate_conversation_title
+    title = _generate_conversation_title("זכויות? לסטודנט! עובד.")
+    assert "?" not in title
+    assert "!" not in title
+    assert "." not in title
+
+
+def test_generate_conversation_title_fallback():
+    from app.api.chat import _generate_conversation_title
+    title = _generate_conversation_title("")
+    assert title == "שיחה חדשה"
+
+
+@pytest.mark.asyncio
+async def test_send_message_sets_conversation_title():
+    """First valid message must auto-set conversation title."""
+    dep, user = _auth(["chat_user"])
+    conv = _make_conv(user_id=user.id)
+    assert conv.title is None
+    iv = _make_index_version()
+    db = _make_db(conv, iv)
+    app.dependency_overrides[get_current_active_user] = dep
+    app.dependency_overrides[get_db] = _db_dep(db)
+
+    with patch("app.api.chat.retrieve_chunks", new=AsyncMock(return_value=[])):
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                await client.post(
+                    f"/chat/conversations/{conv.id}/messages",
+                    json={"content": "על מי חלות הוראות התקשיר"},
+                )
+            assert conv.title is not None
+            assert len(conv.title) > 0
+        finally:
+            app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_db, None)
+
+
 # ── Model integrity ───────────────────────────────────────────────────────────
 
 def test_message_source_model_registered():
