@@ -40,3 +40,11 @@ local-data/
 coverage/
 .coverage
 htmlcov/
+
+# Scratch/debug snapshots (browser automation artifacts)
+snap_*.txt
+snapshot_*.txt
+snap_*.json
+chat_result.txt
+qa_results.json
+apps/web/tsconfig.tsbuildinfo
