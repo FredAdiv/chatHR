@@ -11,11 +11,16 @@ import {
   updateKnowledgeSource,
 } from "@/lib/api";
 
-const CONTEXT_LABELS: Record<string, string> = {
-  government_ministries: "משרדי ממשלה",
-  defense_system: "מערכת הביטחון",
-  health_system: "מערכת הבריאות",
-};
+const ALL_CONTEXTS: { value: string; label: string }[] = [
+  { value: "general", label: "כלל (כללי)" },
+  { value: "government_ministries", label: "משרדי ממשלה" },
+  { value: "defense_system", label: "מערכת הביטחון" },
+  { value: "health_system", label: "מערכת הבריאות" },
+];
+
+const CONTEXT_LABELS: Record<string, string> = Object.fromEntries(
+  ALL_CONTEXTS.map((c) => [c.value, c.label])
+);
 
 const AUTHORITY_LABELS: Record<number, string> = {
   1: "1 - תקשי\"ר / הסכמי שכר",
@@ -31,10 +36,17 @@ interface EditForm {
   url: string;
   authority_level: number;
   is_active: boolean;
-  context_type: string;
+  contexts: string[];
 }
 
-const EMPTY_FORM: EditForm = { name: "", source_type: "file", url: "", authority_level: 3, is_active: true, context_type: "" };
+const EMPTY_FORM: EditForm = {
+  name: "",
+  source_type: "file",
+  url: "",
+  authority_level: 3,
+  is_active: true,
+  contexts: [],
+};
 
 export default function KnowledgeSourcesPage() {
   const router = useRouter();
@@ -76,14 +88,37 @@ export default function KnowledgeSourcesPage() {
   function startEdit(src: KnowledgeSourceResponse) {
     setEditingId(src.id);
     setShowCreate(false);
-    setForm({ name: src.name, source_type: src.source_type, url: src.url || "", authority_level: src.authority_level, is_active: src.is_active, context_type: src.context_type || "" });
+    setForm({
+      name: src.name,
+      source_type: src.source_type,
+      url: src.url || "",
+      authority_level: src.authority_level,
+      is_active: src.is_active,
+      contexts: src.contexts || [],
+    });
+  }
+
+  function toggleContext(value: string) {
+    setForm((f) => ({
+      ...f,
+      contexts: f.contexts.includes(value)
+        ? f.contexts.filter((c) => c !== value)
+        : [...f.contexts, value],
+    }));
   }
 
   async function handleSave() {
     if (!token) return;
     setSaving(true);
     setError(null);
-    const payload = { ...form, url: form.url || undefined, context_type: (form.context_type as "government_ministries" | "defense_system" | "health_system") || undefined };
+    const payload = {
+      name: form.name,
+      source_type: form.source_type,
+      url: form.url || undefined,
+      authority_level: form.authority_level,
+      is_active: form.is_active,
+      contexts: form.contexts,
+    };
     try {
       if (showCreate) {
         await createKnowledgeSource(token, payload);
@@ -109,6 +144,7 @@ export default function KnowledgeSourcesPage() {
       <header style={{ background: "#1e3a5f", color: "#fff", padding: "0.6rem 1rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>מקורות ידע</span>
         <nav style={{ display: "flex", gap: "0.5rem" }}>
+          <button onClick={() => router.push("/admin")} style={navBtn}>לוח בקרה</button>
           <button onClick={() => router.push("/admin/index-versions")} style={navBtn}>גרסאות אינדקס</button>
           <button onClick={() => router.push("/admin/knowledge/upload")} style={navBtn}>טעינת מסמך</button>
           <button onClick={() => router.push("/chat")} style={navBtn}>צ׳אט</button>
@@ -146,15 +182,20 @@ export default function KnowledgeSourcesPage() {
                     {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{AUTHORITY_LABELS[n]}</option>)}
                   </select>
                 </div>
-                <div style={{ flex: 1, minWidth: "150px" }}>
-                  <label style={{ fontSize: "0.82rem" }}>הקשר</label>
-                  <select value={form.context_type} onChange={(e) => setForm((f) => ({ ...f, context_type: e.target.value }))}
-                    style={{ display: "block", width: "100%", padding: "0.35rem", borderRadius: "4px", border: "1px solid #ccc", marginTop: "0.2rem" }}>
-                    <option value="">כללי</option>
-                    <option value="government_ministries">משרדי ממשלה</option>
-                    <option value="defense_system">מערכת הביטחון</option>
-                    <option value="health_system">מערכת הבריאות</option>
-                  </select>
+              </div>
+              <div>
+                <label style={{ fontSize: "0.82rem", display: "block", marginBottom: "0.3rem" }}>הקשרים (ניתן לבחור מספר)</label>
+                <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                  {ALL_CONTEXTS.map((ctx) => (
+                    <label key={ctx.value} style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={form.contexts.includes(ctx.value)}
+                        onChange={() => toggleContext(ctx.value)}
+                      />
+                      {ctx.label}
+                    </label>
+                  ))}
                 </div>
               </div>
               <input placeholder="URL (אופציונלי)" value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
@@ -182,7 +223,7 @@ export default function KnowledgeSourcesPage() {
                 <th style={th}>שם</th>
                 <th style={th}>סוג</th>
                 <th style={th}>רמת סמכות</th>
-                <th style={th}>הקשר</th>
+                <th style={th}>הקשרים</th>
                 <th style={th}>סטטוס</th>
                 <th style={th}>פעולות</th>
               </tr>
@@ -193,7 +234,11 @@ export default function KnowledgeSourcesPage() {
                   <td style={td}><strong>{src.name}</strong></td>
                   <td style={td}>{src.source_type}</td>
                   <td style={td}>{AUTHORITY_LABELS[src.authority_level] || src.authority_level}</td>
-                  <td style={td}>{src.context_type ? CONTEXT_LABELS[src.context_type] || src.context_type : "כללי"}</td>
+                  <td style={td}>
+                    {src.contexts && src.contexts.length > 0
+                      ? src.contexts.map((c) => CONTEXT_LABELS[c] || c).join(", ")
+                      : <span style={{ color: "#9ca3af" }}>ללא הגדרה</span>}
+                  </td>
                   <td style={td}>
                     <span style={{ color: src.is_active ? "#166534" : "#9ca3af", fontWeight: "bold" }}>{src.is_active ? "פעיל" : "לא פעיל"}</span>
                   </td>

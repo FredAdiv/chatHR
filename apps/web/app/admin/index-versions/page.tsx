@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, IndexVersionResponse, getMe, listIndexVersions } from "@/lib/api";
+import {
+  ApiError,
+  IndexVersionResponse,
+  activateIndexVersion,
+  getMe,
+  listIndexVersions,
+  rollbackIndexVersion,
+} from "@/lib/api";
 
 const STATUS_LABELS: Record<string, string> = {
   building: "בבנייה",
@@ -35,6 +42,7 @@ export default function IndexVersionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
+  const [actioning, setActioning] = useState<string | null>(null);
 
   function handleAuthError() {
     localStorage.removeItem("chathr_token");
@@ -45,7 +53,8 @@ export default function IndexVersionsPage() {
     setLoading(true);
     setError(null);
     try {
-      setSources(await listIndexVersions(t, sf || undefined));
+      const data = await listIndexVersions(t, sf || undefined);
+      setVersionsSorted(data);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 401 || e.status === 403)) handleAuthError();
       else setError("לא ניתן לטעון גרסאות אינדקס.");
@@ -54,11 +63,9 @@ export default function IndexVersionsPage() {
     }
   }
 
-  function setSources(data: IndexVersionResponse[]) {
-    setVersions(data.sort((a, b) => {
-      const order = { active: 0, ready: 1, building: 2, draft: 3, quality_check_failed: 4, archived: 5 };
-      return (order[a.status as keyof typeof order] ?? 9) - (order[b.status as keyof typeof order] ?? 9);
-    }));
+  function setVersionsSorted(data: IndexVersionResponse[]) {
+    const order: Record<string, number> = { active: 0, ready: 1, building: 2, draft: 3, quality_check_failed: 4, archived: 5 };
+    setVersions([...data].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9)));
   }
 
   useEffect(() => {
@@ -70,6 +77,38 @@ export default function IndexVersionsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function handleActivate(iv: IndexVersionResponse) {
+    if (!token) return;
+    if (!confirm(`להפעיל את גרסת האינדקס "${iv.version_label}"?\nהגרסה הפעילה הנוכחית תועבר לארכיון.`)) return;
+    setActioning(iv.id);
+    setError(null);
+    try {
+      await activateIndexVersion(token, iv.id);
+      await load(token, statusFilter);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) handleAuthError();
+      else setError("שגיאה בהפעלת גרסת האינדקס.");
+    } finally {
+      setActioning(null);
+    }
+  }
+
+  async function handleRollback(iv: IndexVersionResponse) {
+    if (!token) return;
+    if (!confirm(`לשחזר את גרסת האינדקס "${iv.version_label}"?\nהגרסה הפעילה הנוכחית תועבר לארכיון.`)) return;
+    setActioning(iv.id);
+    setError(null);
+    try {
+      await rollbackIndexVersion(token, iv.id);
+      await load(token, statusFilter);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) handleAuthError();
+      else setError("שגיאה בשחזור גרסת האינדקס.");
+    } finally {
+      setActioning(null);
+    }
+  }
+
   if (!token) return null;
 
   return (
@@ -77,6 +116,7 @@ export default function IndexVersionsPage() {
       <header style={{ background: "#1e3a5f", color: "#fff", padding: "0.6rem 1rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>גרסאות אינדקס</span>
         <nav style={{ display: "flex", gap: "0.5rem" }}>
+          <button onClick={() => router.push("/admin")} style={navBtn}>לוח בקרה</button>
           <button onClick={() => router.push("/admin/knowledge-sources")} style={navBtn}>מקורות ידע</button>
           <button onClick={() => router.push("/admin/knowledge/upload")} style={navBtn}>טעינת מסמך</button>
           <button onClick={() => router.push("/chat")} style={navBtn}>צ׳אט</button>
@@ -96,9 +136,6 @@ export default function IndexVersionsPage() {
             style={{ padding: "0.3rem 0.75rem", borderRadius: "4px", border: "1px solid #ccc", background: "#fff", cursor: "pointer" }}>
             רענן
           </button>
-          <span style={{ fontSize: "0.82rem", color: "#6b7280" }}>
-            לניהול מלא של אינדקסים (עיבוד, בדיקה, הפעלה) — השתמש ב<button onClick={() => router.push("/admin/knowledge/upload")} style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", textDecoration: "underline", fontSize: "0.82rem" }}>מסך טעינת מסמך</button>
-          </span>
         </div>
 
         {loading ? <div style={{ color: "#6b7280" }}>טוען...</div> : versions.length === 0 ? (
@@ -112,6 +149,7 @@ export default function IndexVersionsPage() {
                 <th style={th}>מודל embedding</th>
                 <th style={th}>נוצר</th>
                 <th style={th}>הופעל</th>
+                <th style={th}>פעולות</th>
               </tr>
             </thead>
             <tbody>
@@ -129,6 +167,28 @@ export default function IndexVersionsPage() {
                   <td style={td}>{iv.embedding_model}</td>
                   <td style={td}>{formatDate(iv.created_at)}</td>
                   <td style={td}>{formatDate(iv.activated_at)}</td>
+                  <td style={td}>
+                    <div style={{ display: "flex", gap: "0.35rem" }}>
+                      {iv.status === "ready" && (
+                        <button
+                          disabled={actioning === iv.id}
+                          onClick={() => handleActivate(iv)}
+                          style={{ padding: "0.2rem 0.5rem", borderRadius: "4px", border: "none", background: "#166534", color: "#fff", cursor: "pointer", fontSize: "0.82rem", opacity: actioning === iv.id ? 0.6 : 1 }}
+                        >
+                          {actioning === iv.id ? "..." : "הפעל"}
+                        </button>
+                      )}
+                      {iv.status === "archived" && (
+                        <button
+                          disabled={actioning === iv.id}
+                          onClick={() => handleRollback(iv)}
+                          style={{ padding: "0.2rem 0.5rem", borderRadius: "4px", border: "1px solid #92400e", background: "#fff", color: "#92400e", cursor: "pointer", fontSize: "0.82rem", opacity: actioning === iv.id ? 0.6 : 1 }}
+                        >
+                          {actioning === iv.id ? "..." : "שחזר"}
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

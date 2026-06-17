@@ -173,7 +173,7 @@ export interface KnowledgeSourceResponse {
   url: string | null;
   authority_level: number;
   is_active: boolean;
-  context_type: string | null;
+  contexts: string[];
   created_at: string | null;
   updated_at: string | null;
 }
@@ -184,7 +184,16 @@ export interface KnowledgeSourceCreate {
   url?: string;
   authority_level: number;
   is_active?: boolean;
-  context_type?: ContextType;
+  contexts?: string[];
+}
+
+export interface KnowledgeSourceUpdate {
+  name?: string;
+  source_type?: string;
+  url?: string;
+  authority_level?: number;
+  is_active?: boolean;
+  contexts?: string[];
 }
 
 // ── Admin: Index Versions ─────────────────────────────────────────────────────
@@ -464,10 +473,10 @@ export async function createKnowledgeSource(
 export async function updateKnowledgeSource(
   token: string,
   sourceId: string,
-  data: Partial<KnowledgeSourceCreate>,
+  data: KnowledgeSourceUpdate,
 ): Promise<KnowledgeSourceResponse> {
   return apiFetch<KnowledgeSourceResponse>(`/admin/knowledge-sources/${sourceId}`, {
-    method: "PUT",
+    method: "PATCH",
     headers: jsonHeaders(token),
     body: JSON.stringify(data),
   });
@@ -481,6 +490,26 @@ export async function listIndexVersions(
 ): Promise<IndexVersionResponse[]> {
   const q = statusFilter ? `?status=${statusFilter}` : "";
   return apiFetch<IndexVersionResponse[]>(`/admin/index-versions${q}`, {
+    headers: authHeaders(token),
+  });
+}
+
+export async function activateIndexVersion(
+  token: string,
+  versionId: string,
+): Promise<IndexVersionResponse> {
+  return apiFetch<IndexVersionResponse>(`/admin/index-versions/${versionId}/activate`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+  });
+}
+
+export async function rollbackIndexVersion(
+  token: string,
+  versionId: string,
+): Promise<IndexVersionResponse> {
+  return apiFetch<IndexVersionResponse>(`/admin/index-versions/${versionId}/rollback`, {
+    method: "PATCH",
     headers: authHeaders(token),
   });
 }
