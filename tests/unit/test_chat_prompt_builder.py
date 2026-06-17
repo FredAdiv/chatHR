@@ -41,11 +41,13 @@ def test_prompt_has_system_and_user_messages():
 
 
 def test_prompt_includes_chunk_text():
+    # Chunks live in the system message (not user) to avoid privacy-guard
+    # false positives on regulation text patterns.
     chunk_text = "ניתן לצבור עד 30 ימי חופשה שנתית."
     chunks = [_make_chunk(text=chunk_text)]
     messages = build_chat_prompt("שאלה?", chunks, "government_ministries")
-    user_msg = next(m for m in messages if m.role == "user")
-    assert chunk_text in user_msg.content
+    system_msg = next(m for m in messages if m.role == "system")
+    assert chunk_text in system_msg.content
 
 
 def test_prompt_includes_user_question():
