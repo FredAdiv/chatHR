@@ -9,7 +9,7 @@ Usage (inside the API container):
     python -m scripts.load_local_file_to_active_index "/app/local-data/takshir.pdf" \\
         --source-name "תקשי\\"ר - מסמך בדיקה מקומי" \\
         --source-url "https://www.gov.il/he/departments/policies/takshir" \\
-        --context-type government_ministries \\
+        --contexts government_ministries,general \\
         --authority-level 1 \\
         --index-version "takshir-local-v1"
 
@@ -38,6 +38,10 @@ from app.db.models.chunk_embedding import ChunkEmbedding
 from app.db.models.document_chunk import DocumentChunk
 from app.db.models.index_version import IndexVersion
 from app.db.models.knowledge_source import KnowledgeSource
+from app.db.models.knowledge_source_context import (
+    ALLOWED_CONTEXT_VALUES,
+    KnowledgeSourceContext,
+)
 from app.db.models.source_document import SourceDocument
 from app.services.audit import record_audit_event
 from app.services.embeddings.factory import get_embedding_provider
@@ -47,8 +51,6 @@ from app.services.ingestion.storage import put_bytes
 from app.services.parsing.orchestrator import parse_and_chunk_source_document
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-
-_ALLOWED_CONTEXT_TYPES = ("government_ministries", "defense_system", "health_system")
 
 # Maps local file extensions to document_type strings used by the parser dispatcher.
 _EXT_TO_DOC_TYPE: dict[str, str] = {
@@ -126,7 +128,7 @@ async def load_local_file(
     file_path: str,
     source_name: str,
     source_url: str,
-    context_type: str,
+    contexts: list[str],
     authority_level: int,
     index_version_label: str,
 ) -> None:
@@ -162,11 +164,16 @@ async def load_local_file(
             url=source_url,
             authority_level=authority_level,
             is_active=True,
-            context_type=context_type,
         )
         db.add(ks)
         await db.flush()
-        print(f"      Created KnowledgeSource id={ks.id}")
+        for ctx in contexts:
+            db.add(KnowledgeSourceContext(
+                knowledge_source_id=ks.id,
+                context_type=ctx,
+            ))
+        await db.flush()
+        print(f"      Created KnowledgeSource id={ks.id} contexts={contexts}")
     else:
         print(f"      Reusing KnowledgeSource id={ks.id}")
 
@@ -324,6 +331,7 @@ async def load_local_file(
     print(f"  source_url (meta)    : {source_url}")
     print(f"  document_type        : {document_type}")
     print(f"  authority_level      : {authority_level}")
+    print(f"  contexts             : {contexts}")
     print(f"  knowledge_source_id  : {ks.id}")
     print(f"  source_document_id   : {sd.id}")
     print(f"  parsed_document_id   : {parsed_doc.id}")
@@ -360,10 +368,10 @@ def _parse_args() -> argparse.Namespace:
         help="Citation URL for the source (not fetched; metadata only)",
     )
     parser.add_argument(
-        "--context-type",
+        "--contexts",
         default="government_ministries",
-        choices=_ALLOWED_CONTEXT_TYPES,
-        help="Knowledge context type (default: government_ministries)",
+        help="Comma-separated context types (default: government_ministries). "
+             f"Allowed: {sorted(ALLOWED_CONTEXT_VALUES)}",
     )
     parser.add_argument(
         "--authority-level",
@@ -382,6 +390,14 @@ def _parse_args() -> argparse.Namespace:
 async def main() -> None:
     args = _parse_args()
 
+    # Parse and validate contexts
+    raw_contexts = [c.strip() for c in args.contexts.split(",") if c.strip()]
+    invalid = [c for c in raw_contexts if c not in ALLOWED_CONTEXT_VALUES]
+    if invalid:
+        print(f"ERROR: Invalid context values: {invalid}. Allowed: {sorted(ALLOWED_CONTEXT_VALUES)}")
+        sys.exit(1)
+    contexts = list(dict.fromkeys(raw_contexts)) or ["government_ministries"]
+
     # Fail fast on file validation before connecting to DB
     try:
         validate_local_file(args.file_path)
@@ -398,7 +414,7 @@ async def main() -> None:
                 file_path=args.file_path,
                 source_name=args.source_name,
                 source_url=args.source_url,
-                context_type=args.context_type,
+                contexts=contexts,
                 authority_level=args.authority_level,
                 index_version_label=args.index_version,
             )

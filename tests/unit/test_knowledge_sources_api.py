@@ -31,38 +31,58 @@ def _auth(roles):
     return _dep
 
 
-def _db_for_create():
+def _mock_ctx_result(ctx_list=None):
+    """Return a mock DB result that yields ctx_list from .scalars().all()."""
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = ctx_list or []
+    return r
+
+
+def _db_for_create(contexts_to_return=None):
+    """DB mock for create endpoints — execute always returns empty contexts."""
     mock_db = AsyncMock()
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()
     mock_db.commit = AsyncMock()
+    # execute is called for: delete(KnowledgeSourceContext) + select(KnowledgeSourceContext)
+    mock_db.execute = AsyncMock(return_value=_mock_ctx_result(contexts_to_return))
     async def _dep():
         yield mock_db
     return _dep
 
 
 def _db_for_get(item):
+    """DB mock for get-by-id endpoints — execute returns empty contexts."""
     mock_db = AsyncMock()
     mock_db.get = AsyncMock(return_value=item)
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()
     mock_db.commit = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=_mock_ctx_result())
     async def _dep():
         yield mock_db
     return _dep
 
 
 def _db_for_list(items=None):
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = items or []
+    """DB mock for list endpoint.
+
+    execute is called N+1 times: once for the KnowledgeSource list,
+    then once per item for _load_contexts.
+    """
+    items = items or []
+    sources_result = MagicMock()
+    sources_result.scalars.return_value.all.return_value = items
+    ctx_result = _mock_ctx_result()
+    side_effects = [sources_result] + [ctx_result for _ in items]
     mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.execute = AsyncMock(side_effect=side_effects)
     async def _dep():
         yield mock_db
     return _dep
 
 
-def _ks_item(is_active=True, authority_level=2, context_type=None):
+def _ks_item(is_active=True, authority_level=2):
     now = datetime.now(timezone.utc)
     item = MagicMock(spec=KnowledgeSource)
     item.id = uuid.uuid4()
@@ -71,7 +91,6 @@ def _ks_item(is_active=True, authority_level=2, context_type=None):
     item.url = "https://example.gov.il/takshir"
     item.authority_level = authority_level
     item.is_active = is_active
-    item.context_type = context_type
     item.created_at = now
     item.updated_at = now
     return item
@@ -135,6 +154,7 @@ async def test_knowledge_admin_can_create_source():
         assert r.status_code == 201
         assert r.json()["authority_level"] == 1
         assert r.json()["is_active"] is True
+        assert isinstance(r.json()["contexts"], list)
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
@@ -215,6 +235,7 @@ async def test_knowledge_admin_can_list_sources():
             r = await client.get("/admin/knowledge-sources")
         assert r.status_code == 200
         assert len(r.json()) == 1
+        assert isinstance(r.json()[0]["contexts"], list)
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
@@ -252,7 +273,7 @@ async def test_activate_sets_is_active_true():
         app.dependency_overrides.pop(get_db, None)
 
 
-# ── authority_level query filter validation (Fix 1) ───────────────────────────
+# ── authority_level query filter validation ───────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_list_authority_level_0_returns_422():
@@ -302,10 +323,10 @@ async def test_list_without_authority_level_returns_200():
         app.dependency_overrides.pop(get_db, None)
 
 
-# ── context_type ──────────────────────────────────────────────────────────────
+# ── contexts (multi-context) ──────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_create_with_valid_context_type_returns_201():
+async def test_create_with_valid_contexts_returns_201():
     app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
     app.dependency_overrides[get_db] = _db_for_create()
     try:
@@ -314,17 +335,35 @@ async def test_create_with_valid_context_type_returns_201():
                 "name": "Health Ministry",
                 "source_type": "ministry",
                 "authority_level": 2,
-                "context_type": "health_system",
+                "contexts": ["health_system"],
             })
         assert r.status_code == 201
-        assert r.json()["context_type"] == "health_system"
+        assert isinstance(r.json()["contexts"], list)
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.mark.asyncio
-async def test_create_with_invalid_context_type_returns_422():
+async def test_create_with_multiple_contexts_returns_201():
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_create()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/admin/knowledge-sources", json={
+                "name": "Cross-sector doc",
+                "source_type": "general",
+                "authority_level": 3,
+                "contexts": ["government_ministries", "general"],
+            })
+        assert r.status_code == 201
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_create_with_invalid_context_returns_422():
     app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -332,7 +371,7 @@ async def test_create_with_invalid_context_type_returns_422():
                 "name": "Source",
                 "source_type": "ministry",
                 "authority_level": 2,
-                "context_type": "invalid_sector",
+                "contexts": ["invalid_sector"],
             })
         assert r.status_code == 422
     finally:
@@ -340,7 +379,8 @@ async def test_create_with_invalid_context_type_returns_422():
 
 
 @pytest.mark.asyncio
-async def test_create_with_null_context_type_returns_201():
+async def test_create_with_empty_contexts_returns_201():
+    """Empty contexts list is valid — source has no context restrictions."""
     app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
     app.dependency_overrides[get_db] = _db_for_create()
     try:
@@ -349,9 +389,10 @@ async def test_create_with_null_context_type_returns_201():
                 "name": "General Source",
                 "source_type": "general",
                 "authority_level": 5,
+                "contexts": [],
             })
         assert r.status_code == 201
-        assert r.json()["context_type"] is None
+        assert r.json()["contexts"] == []
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
@@ -359,14 +400,14 @@ async def test_create_with_null_context_type_returns_201():
 
 @pytest.mark.asyncio
 async def test_list_filter_by_context_type_returns_200():
-    item = _ks_item(context_type="government_ministries")
+    item = _ks_item()
     app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
     app.dependency_overrides[get_db] = _db_for_list([item])
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/admin/knowledge-sources?context_type=government_ministries")
         assert r.status_code == 200
-        assert r.json()[0]["context_type"] == "government_ministries"
+        assert isinstance(r.json()[0]["contexts"], list)
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
         app.dependency_overrides.pop(get_db, None)
@@ -381,3 +422,17 @@ async def test_list_invalid_context_type_returns_422():
         assert r.status_code == 422
     finally:
         app.dependency_overrides.pop(get_current_active_user, None)
+
+
+@pytest.mark.asyncio
+async def test_list_context_type_general_returns_200():
+    """'general' is now a valid context_type filter value."""
+    app.dependency_overrides[get_current_active_user] = _auth(["knowledge_admin"])
+    app.dependency_overrides[get_db] = _db_for_list([])
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.get("/admin/knowledge-sources?context_type=general")
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_db, None)

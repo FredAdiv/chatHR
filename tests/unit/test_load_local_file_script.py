@@ -157,7 +157,7 @@ async def test_source_url_not_fetched(tmp_path):
             file_path=str(test_file),
             source_name="Test",
             source_url="https://www.gov.il/test",
-            context_type="government_ministries",
+            contexts=["government_ministries"],
             authority_level=1,
             index_version_label="test-v1",
         )
@@ -206,7 +206,7 @@ async def test_no_activation_on_parse_failure(tmp_path):
                 file_path=str(test_file),
                 source_name="Test",
                 source_url="https://www.gov.il/test",
-                context_type="government_ministries",
+                contexts=["government_ministries"],
                 authority_level=1,
                 index_version_label="fail-v1",
             )
@@ -279,7 +279,7 @@ async def test_building_index_before_embeddings(tmp_path):
             file_path=str(test_file),
             source_name="Test",
             source_url="https://www.gov.il/test",
-            context_type="government_ministries",
+            contexts=["government_ministries"],
             authority_level=1,
             index_version_label="build-test-v1",
         )

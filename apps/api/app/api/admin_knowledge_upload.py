@@ -23,6 +23,10 @@ from app.api.deps import require_any_role
 from app.core.config import settings
 from app.core.roles import RoleName
 from app.db.models.knowledge_source import KnowledgeSource
+from app.db.models.knowledge_source_context import (
+    ALLOWED_CONTEXT_VALUES,
+    KnowledgeSourceContext,
+)
 from app.db.models.source_document import SourceDocument
 from app.db.models.user import User
 from app.db.session import get_db
@@ -91,6 +95,7 @@ async def upload_document(
     document_type: Annotated[str, Form(description="Semantic document type, e.g. 'takshir'")],
     authority_level: Annotated[int, Form(description="Authority level 1-5 (lower = stronger)")],
     source_url: Annotated[str | None, Form(description="Citation URL (not fetched)")] = None,
+    contexts: Annotated[str | None, Form(description="Comma-separated context types, e.g. 'government_ministries,general'")] = None,
     system_context: Annotated[str | None, Form(description="System context (optional)")] = None,
     notes: Annotated[str | None, Form(description="Admin notes (optional)")] = None,
     db: AsyncSession = Depends(get_db),
@@ -126,6 +131,19 @@ async def upload_document(
 
     safe_filename = PurePosixPath(file.filename).name
     file_format = _validate_extension(safe_filename)
+
+    # Parse and validate contexts (defaults to government_ministries for backward compat)
+    if contexts and contexts.strip():
+        parsed_contexts = [c.strip() for c in contexts.split(",") if c.strip()]
+        invalid = [c for c in parsed_contexts if c not in ALLOWED_CONTEXT_VALUES]
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={"error": "invalid_context", "message": f"ערכי הקשר לא חוקיים: {invalid}"},
+            )
+        parsed_contexts = list(dict.fromkeys(parsed_contexts))
+    else:
+        parsed_contexts = ["government_ministries"]
 
     # ── Read file content ──────────────────────────────────────────────────────
     try:
@@ -181,9 +199,15 @@ async def upload_document(
             url=effective_url if source_url and source_url.strip() else None,
             authority_level=authority_level,
             is_active=True,
-            context_type="government_ministries",
         )
         db.add(ks)
+        await db.flush()
+        for ctx in parsed_contexts:
+            db.add(KnowledgeSourceContext(
+                id=uuid.uuid4(),
+                knowledge_source_id=ks.id,
+                context_type=ctx,
+            ))
         await db.flush()
 
     # ── SourceDocument ─────────────────────────────────────────────────────────

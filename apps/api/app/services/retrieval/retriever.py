@@ -19,13 +19,14 @@ from app.db.models.chunk_embedding import ChunkEmbedding
 from app.db.models.document_chunk import DocumentChunk
 from app.db.models.index_version import IndexVersion
 from app.db.models.knowledge_source import KnowledgeSource
+from app.db.models.knowledge_source_context import KnowledgeSourceContext
 from app.db.models.parsed_document import ParsedDocument
 from app.db.models.source_document import SourceDocument
 from app.services.embeddings.gateway import embed_with_gateway
 from app.services.retrieval.citation import CitationMetadata, build_citation_metadata
 from app.services.retrieval.reranker import normalize_hebrew_text, rerank_candidates
 
-# Allowed context_type values matching knowledge_sources.context_type constraint
+# Allowed context_type values for chat conversations (user-selectable)
 ALLOWED_CONTEXT_TYPES = frozenset({"government_ministries", "defense_system", "health_system"})
 
 # Fetch this many candidates from vector search before lexical reranking.
@@ -87,7 +88,17 @@ _RETRIEVAL_SQL_WITH_CONTEXT = text("""
     WHERE ce.index_version_id = :index_version_id
       AND ce.embedding_model  = :embedding_model
       AND ce.status           = 'embedded'
-      AND (ks.context_type = :context_type OR ks.context_type IS NULL)
+      AND (
+          EXISTS (
+              SELECT 1 FROM knowledge_source_contexts ksc
+              WHERE ksc.knowledge_source_id = ks.id
+                AND ksc.context_type IN ('general', :context_type)
+          )
+          OR NOT EXISTS (
+              SELECT 1 FROM knowledge_source_contexts ksc2
+              WHERE ksc2.knowledge_source_id = ks.id
+          )
+      )
     ORDER BY distance ASC, ks.authority_level ASC, dc.chunk_index ASC
     LIMIT :limit
 """)
@@ -306,10 +317,15 @@ async def retrieve_chunks_text_fallback(
     )
 
     if context_type is not None:
-        q = q.where(
-            (KnowledgeSource.context_type == context_type)
-            | KnowledgeSource.context_type.is_(None)
+        from sqlalchemy import exists as _exists
+        ksc_match = _exists().where(
+            (KnowledgeSourceContext.knowledge_source_id == KnowledgeSource.id)
+            & KnowledgeSourceContext.context_type.in_(["general", context_type])
         )
+        ksc_any = _exists().where(
+            KnowledgeSourceContext.knowledge_source_id == KnowledgeSource.id
+        )
+        q = q.where(ksc_match | ~ksc_any)
 
     rows = (await db.execute(q)).all()
 

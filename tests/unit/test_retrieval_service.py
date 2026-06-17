@@ -182,7 +182,8 @@ async def test_index_version_id_in_sql_params():
 async def test_context_type_param_and_null_fallback_sql():
     """When context_type is provided:
     - it must be passed as a SQL param (not interpolated)
-    - the SQL must include OR ks.context_type IS NULL (null = general sources)
+    - the SQL must use EXISTS against knowledge_source_contexts table
+    - the SQL must include NOT EXISTS fallback (no rows in ksc = applies to all)
     """
     db = _make_db([])
     await retrieve_chunks(db, "query", uuid.uuid4(), context_type="government_ministries")
@@ -190,7 +191,8 @@ async def test_context_type_param_and_null_fallback_sql():
     params = call_args[0][1]
     sql_text = str(call_args[0][0])
     assert params.get("context_type") == "government_ministries"
-    assert "ks.context_type IS NULL" in sql_text
+    assert "knowledge_source_contexts" in sql_text
+    assert "NOT EXISTS" in sql_text
 
 
 # ── Citation builder ──────────────────────────────────────────────────────────
