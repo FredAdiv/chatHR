@@ -34,6 +34,35 @@ def is_usable_llm_response(content: str) -> bool:
     return True
 
 
+def synthesize_structured_answer(chunks: list[RetrievedChunk]) -> tuple[str, list[dict]]:
+    """Return (answer_text, answer_blocks) for extractive synthesis fallback."""
+    if not chunks:
+        return _SYNTHESIS_FAILURE_MSG, []
+
+    parts: list[str] = [_INTRO]
+    blocks: list[dict] = []
+
+    for i, chunk in enumerate(chunks[:_MAX_CHUNKS]):
+        text = chunk.chunk_text.strip()
+        if len(text) > _MAX_CHUNK_CHARS:
+            text = text[:_MAX_CHUNK_CHARS] + "..."
+        c = chunk.citation
+        label_parts: list[str] = []
+        if c.source_title:
+            label_parts.append(c.source_title)
+        if c.section_title:
+            label_parts.append(f"— {c.section_title}")
+        label = " ".join(label_parts) if label_parts else "מקור"
+        parts.append(f"\n[{label}]\n{text}")
+        blocks.append({
+            "block_id": f"b{i + 1}",
+            "text": text,
+            "citation_ids": [chunk.chunk_id],
+        })
+
+    return "\n".join(parts), blocks
+
+
 def synthesize_answer(chunks: list[RetrievedChunk]) -> str:
     """Produce a grounded Hebrew answer extracted from the top retrieved chunks.
 

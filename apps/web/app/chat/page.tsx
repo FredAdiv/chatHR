@@ -7,8 +7,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
+  AnswerBlock,
   ApiError,
   CitationResponse,
   ContextType,
@@ -42,6 +43,7 @@ interface DisplayMessage {
   role: string;
   content: string;
   sources: CitationResponse[];
+  answer_blocks?: AnswerBlock[];
 }
 
 interface FeedbackState {
@@ -89,6 +91,7 @@ function formatDate(iso: string): string {
 
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
   const [userRoles, setUserRoles] = useState<string[]>([]);
@@ -140,7 +143,29 @@ export default function ChatPage() {
         if (msg === "__redirect_login__") handleAuthError();
         else setError("לא ניתן לטעון פרטי משתמש.");
       });
-    loadConversationList(t);
+    loadConversationList(t).then(() => {
+      const convIdFromUrl = searchParams.get("conversationId");
+      if (convIdFromUrl) {
+        setConversationId(convIdFromUrl);
+        setLoadingConv(true);
+        getConversation(t, convIdFromUrl)
+          .then((detail) => {
+            setContext(detail.context_type as ContextType);
+            setMessages(detail.messages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              sources: [],
+            })));
+          })
+          .catch((err) => {
+            const msg = safeErrorMessage(err);
+            if (msg === "__redirect_login__") handleAuthError();
+            else setError("לא ניתן לטעון שיחה. אנא נסה שוב.");
+          })
+          .finally(() => setLoadingConv(false));
+      }
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -225,6 +250,7 @@ export default function ChatPage() {
             role: "assistant",
             content: data.message.content,
             sources: data.sources,
+            answer_blocks: data.answer_blocks ?? [],
           },
         ];
       });
@@ -563,12 +589,55 @@ export default function ChatPage() {
                       padding: "0.7rem 1rem",
                       borderRadius: "12px",
                       lineHeight: 1.6,
-                      whiteSpace: "pre-wrap",
                       background: isUser ? "#dbeafe" : "#f0fdf4",
                       border: isUser ? "1px solid #93c5fd" : "1px solid #86efac",
                     }}
                   >
-                    {msg.content}
+                    {!isUser && msg.answer_blocks && msg.answer_blocks.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                        {msg.answer_blocks.map((block) => {
+                          const blockCitations = msg.sources.filter((s) =>
+                            block.citation_ids.includes(s.chunk_id)
+                          );
+                          return (
+                            <div key={block.block_id}>
+                              <span style={{ whiteSpace: "pre-wrap" }}>{block.text}</span>
+                              {blockCitations.length > 0 && (
+                                <span style={{ display: "inline-flex", gap: "0.3rem", flexWrap: "wrap", marginRight: "0.4rem" }}>
+                                  {blockCitations.map((s) => (
+                                    <button
+                                      key={s.chunk_id}
+                                      onClick={() => {
+                                        const params = new URLSearchParams();
+                                        if (conversationId) params.set("conversationId", conversationId);
+                                        params.set("messageId", msg.id);
+                                        router.push(`/sources/${s.chunk_id}?${params.toString()}`);
+                                      }}
+                                      title={s.source_title ?? s.knowledge_source_name}
+                                      style={{
+                                        background: "#dbeafe",
+                                        border: "1px solid #93c5fd",
+                                        borderRadius: "4px",
+                                        color: "#1d4ed8",
+                                        fontSize: "0.72rem",
+                                        cursor: "pointer",
+                                        padding: "0.05rem 0.35rem",
+                                        textDecoration: "none",
+                                        lineHeight: 1.4,
+                                      }}
+                                    >
+                                      {s.knowledge_source_name}
+                                    </button>
+                                  ))}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span style={{ whiteSpace: "pre-wrap" }}>{msg.content}</span>
+                    )}
                   </div>
 
                   {/* Sources */}
@@ -599,7 +668,12 @@ export default function ChatPage() {
                             )}
                             {src.chunk_id && (
                               <button
-                                onClick={() => router.push(`/sources/${src.chunk_id}`)}
+                                onClick={() => {
+                                const params = new URLSearchParams();
+                                if (conversationId) params.set("conversationId", conversationId);
+                                params.set("messageId", msg.id);
+                                router.push(`/sources/${src.chunk_id}?${params.toString()}`);
+                              }}
                                 style={{
                                   marginRight: "0.5rem",
                                   background: "transparent",

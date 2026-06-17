@@ -7,6 +7,7 @@ Only active index versions used for chat retrieval.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any, Literal
 
@@ -16,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user, require_any_role
+from app.core.config import settings
 from app.db.models.conversation import Conversation
 from app.db.models.feedback import AnswerFeedback
 from app.db.models.index_version import IndexVersion
@@ -23,7 +25,11 @@ from app.db.models.message import Message
 from app.db.models.message_source import MessageSource
 from app.db.session import get_db
 from app.services.audit import record_audit_event
-from app.services.chat.extractive_synthesizer import is_usable_llm_response, synthesize_answer
+from app.services.chat.extractive_synthesizer import (
+    is_usable_llm_response,
+    synthesize_answer,
+    synthesize_structured_answer,
+)
 from app.services.chat.prompt_builder import build_chat_prompt, no_source_answer
 from app.services.guardrails.input_guard import check_feedback_comment, check_user_input
 from app.services.llm_gateway.gateway import generate_with_gateway
@@ -101,13 +107,20 @@ class CitationResponse(BaseModel):
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1)
     index_version_id: uuid.UUID | None = None
-    limit: int = Field(default=5, ge=1, le=10)
+    limit: int = Field(default=settings.chat_retrieval_top_k, ge=1, le=20)
+
+
+class AnswerBlock(BaseModel):
+    block_id: str
+    text: str
+    citation_ids: list[str]
 
 
 class SendMessageResponse(BaseModel):
     message: MessageResponse
     sources: list[CitationResponse]
     retrieval_count: int
+    answer_blocks: list[AnswerBlock] = []
 
 
 class FeedbackRequest(BaseModel):
@@ -127,6 +140,56 @@ class PrivacyFindingSummary(BaseModel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _parse_llm_structured_answer(
+    content: str,
+    chunks: list,
+) -> tuple[str, list[AnswerBlock]] | None:
+    """Parse JSON-structured LLM response. Returns None if parsing fails."""
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        end = -1 if lines[-1].strip().startswith("```") else len(lines)
+        text = "\n".join(lines[1:end])
+
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    answer_text = data.get("answer_text", "")
+    if not isinstance(answer_text, str) or not answer_text.strip():
+        return None
+
+    raw_blocks = data.get("answer_blocks", [])
+    if not isinstance(raw_blocks, list):
+        return None
+
+    source_label_map = {f"מקור {i + 1}": c.chunk_id for i, c in enumerate(chunks)}
+    valid_chunk_ids = {c.chunk_id for c in chunks}
+
+    answer_blocks: list[AnswerBlock] = []
+    for i, block in enumerate(raw_blocks):
+        if not isinstance(block, dict):
+            continue
+        block_text = block.get("text", "")
+        if not isinstance(block_text, str) or not block_text.strip():
+            continue
+        raw_cids = block.get("citation_ids", [])
+        resolved = []
+        for cid in (raw_cids if isinstance(raw_cids, list) else []):
+            if cid in valid_chunk_ids:
+                resolved.append(cid)
+            elif cid in source_label_map:
+                resolved.append(source_label_map[cid])
+        answer_blocks.append(AnswerBlock(
+            block_id=block.get("block_id", f"b{i + 1}"),
+            text=block_text.strip(),
+            citation_ids=resolved,
+        ))
+
+    return answer_text.strip(), answer_blocks
+
 
 async def _get_active_index_version(db: AsyncSession) -> IndexVersion | None:
     result = await db.execute(
@@ -338,6 +401,7 @@ async def send_message(
     )
 
     # 7. Call LLM Gateway; fall back to local extractive synthesizer when unavailable
+    answer_blocks: list[AnswerBlock] = []
     try:
         llm_response = await generate_with_gateway(
             messages=messages_for_llm,
@@ -356,7 +420,13 @@ async def send_message(
 
     # 7b. If LLM returned unusable debug/fake-local output, use local extractive synthesizer
     if chunks and not is_usable_llm_response(answer_content):
-        answer_content = synthesize_answer(chunks)
+        answer_content, raw_blocks = synthesize_structured_answer(chunks)
+        answer_blocks = [AnswerBlock(**b) for b in raw_blocks]
+    elif chunks and is_usable_llm_response(answer_content):
+        # Try to parse structured JSON answer from LLM
+        parsed = _parse_llm_structured_answer(answer_content, chunks)
+        if parsed is not None:
+            answer_content, answer_blocks = parsed
 
     source_chunk_ids = [c.chunk_id for c in chunks]
 
@@ -370,6 +440,7 @@ async def send_message(
             "retrieval_count": len(chunks),
             "source_chunk_ids": source_chunk_ids,
             "index_version_id": str(index_version.id),
+            "answer_blocks": [b.model_dump() for b in answer_blocks] if answer_blocks else [],
         },
     )
     db.add(assistant_msg)
@@ -419,6 +490,7 @@ async def send_message(
         message=MessageResponse.from_orm(assistant_msg),
         sources=citation_list,
         retrieval_count=len(chunks),
+        answer_blocks=answer_blocks,
     )
 
 

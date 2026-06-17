@@ -54,10 +54,17 @@ export interface CitationResponse {
   document_type: string | null;
 }
 
+export interface AnswerBlock {
+  block_id: string;
+  text: string;
+  citation_ids: string[];
+}
+
 export interface SendMessageResponse {
   message: MessageResponse;
   sources: CitationResponse[];
   retrieval_count: number;
+  answer_blocks: AnswerBlock[];
 }
 
 export interface FeedbackResponse {

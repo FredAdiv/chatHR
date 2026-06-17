@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ApiError, ChunkViewResponse, getChunk } from "@/lib/api";
 
 const AUTHORITY_LABELS: Record<number, string> = {
@@ -24,7 +24,12 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 export default function SourceViewerPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const chunkId = params?.chunkId as string | undefined;
+  const returnConversationId = searchParams.get("conversationId");
+  const returnUrl = returnConversationId
+    ? `/chat?conversationId=${returnConversationId}`
+    : null;
 
   const [chunk, setChunk] = useState<ChunkViewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,23 +71,35 @@ export default function SourceViewerPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#f9fafb", padding: "2rem 1.5rem" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
-        {/* Back button */}
-        <button
-          onClick={() => router.back()}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#2563eb",
-            cursor: "pointer",
-            fontSize: "0.9rem",
-            padding: "0 0 1rem 0",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.3rem",
-          }}
-        >
-          ← חזרה
-        </button>
+        {/* Back navigation */}
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", marginBottom: "1rem" }}>
+          <button
+            onClick={() => router.back()}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#6b7280",
+              cursor: "pointer",
+              fontSize: "0.88rem",
+              padding: 0,
+            }}
+          >
+            ← חזרה
+          </button>
+          {returnUrl && (
+            <a
+              href={returnUrl}
+              style={{
+                color: "#2563eb",
+                fontSize: "0.9rem",
+                textDecoration: "underline",
+                fontWeight: 500,
+              }}
+            >
+              חזרה לתשובה
+            </a>
+          )}
+        </div>
 
         <h1 style={{ fontSize: "1.3rem", fontWeight: "bold", color: "#1e3a5f", marginBottom: "1.5rem" }}>
           מקור מצוטט

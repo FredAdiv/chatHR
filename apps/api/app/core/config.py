@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     fallback_chat_model: str = "openai/gpt-4o-mini"
     llm_request_timeout_seconds: int = 30
 
+    # RAG retrieval
+    chat_retrieval_top_k: int = 8
+
     @property
     def async_database_url(self) -> str:
         return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)

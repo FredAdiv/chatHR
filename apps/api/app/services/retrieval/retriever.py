@@ -101,7 +101,7 @@ async def retrieve_chunks(
     query_text: str,
     index_version_id: uuid.UUID,
     context_type: str | None = None,
-    limit: int = 5,
+    limit: int = 8,
     min_score: float | None = None,
 ) -> list[RetrievedChunk]:
     """
