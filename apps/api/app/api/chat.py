@@ -7,6 +7,7 @@ Only active index versions used for chat retrieval.
 """
 from __future__ import annotations
 
+import html as _html_module
 import json
 import uuid
 from typing import Any, Literal
@@ -257,6 +258,22 @@ def _build_privacy_block_response(guard_result: Any) -> dict:
     }
 
 
+_SCRIPT_STYLE_RE = _re.compile(r'<(script|style)[^>]*>.*?</(script|style)>', _re.IGNORECASE | _re.DOTALL)
+_HTML_TAG_RE = _re.compile(r'<[^>]+>')
+_EXCESS_NEWLINE_RE = _re.compile(r'\n{3,}')
+
+
+def _normalize_answer_text(text: str) -> str:
+    """Strip HTML tags/script blocks and decode entities from LLM answer text."""
+    if not text:
+        return text
+    text = _SCRIPT_STYLE_RE.sub('', text)
+    text = _HTML_TAG_RE.sub('', text)
+    text = _html_module.unescape(text)
+    text = _EXCESS_NEWLINE_RE.sub('\n\n', text)
+    return text.strip()
+
+
 def _build_guardrail_block_response(guardrail_result: Any) -> dict:
     return {
         "error": "guardrail_blocked",
@@ -468,6 +485,17 @@ async def send_message(
         has_sufficient_sources = False
         chunks = []
         answer_blocks = []
+
+    # 7d. Normalize answer text — strip HTML and decode entities
+    answer_content = _normalize_answer_text(answer_content)
+    answer_blocks = [
+        AnswerBlock(
+            block_id=b.block_id,
+            text=_normalize_answer_text(b.text),
+            citation_ids=b.citation_ids,
+        )
+        for b in answer_blocks
+    ]
 
     source_chunk_ids = [c.chunk_id for c in chunks]
 

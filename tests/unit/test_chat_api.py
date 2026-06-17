@@ -774,6 +774,145 @@ async def test_send_message_sets_conversation_title():
             app.dependency_overrides.pop(get_db, None)
 
 
+# ── HTML sanitization — _normalize_answer_text ───────────────────────────────
+
+def test_normalize_strips_html_tags():
+    from app.api.chat import _normalize_answer_text
+    result = _normalize_answer_text("<p>טקסט</p>")
+    assert result == "טקסט"
+    assert "<p>" not in result
+
+
+def test_normalize_removes_script_block():
+    from app.api.chat import _normalize_answer_text
+    result = _normalize_answer_text("<script>alert(1)</script>תשובה בטוחה")
+    assert "alert" not in result
+    assert "<script>" not in result
+    assert "תשובה בטוחה" in result
+
+
+def test_normalize_removes_style_block():
+    from app.api.chat import _normalize_answer_text
+    result = _normalize_answer_text("<style>body{color:red}</style>טקסט")
+    assert "color" not in result
+    assert "<style>" not in result
+    assert "טקסט" in result
+
+
+def test_normalize_decodes_nbsp():
+    from app.api.chat import _normalize_answer_text
+    result = _normalize_answer_text("שלום&nbsp;עולם")
+    assert "&nbsp;" not in result
+    assert "שלום" in result
+
+
+def test_normalize_decodes_amp():
+    from app.api.chat import _normalize_answer_text
+    result = _normalize_answer_text("a&amp;b")
+    assert "&amp;" not in result
+    assert "&" in result
+
+
+def test_normalize_decodes_lt_gt():
+    from app.api.chat import _normalize_answer_text
+    result = _normalize_answer_text("&lt;p&gt;טקסט&lt;/p&gt;")
+    assert "&lt;" not in result
+    assert "&gt;" not in result
+
+
+def test_normalize_handles_empty():
+    from app.api.chat import _normalize_answer_text
+    assert _normalize_answer_text("") == ""
+
+
+def test_normalize_strips_ul_li():
+    from app.api.chat import _normalize_answer_text
+    result = _normalize_answer_text("<ul><li>פריט 1</li><li>פריט 2</li></ul>")
+    assert "<ul>" not in result
+    assert "<li>" not in result
+    assert "פריט 1" in result
+    assert "פריט 2" in result
+
+
+@pytest.mark.asyncio
+async def test_html_in_llm_answer_is_sanitized():
+    """HTML tags in a JSON LLM answer must be stripped from message content and blocks."""
+    dep, user = _auth(["chat_user"])
+    conv = _make_conv(user_id=user.id)
+    iv = _make_index_version()
+    db = _make_db(conv, iv)
+    app.dependency_overrides[get_current_active_user] = dep
+    app.dependency_overrides[get_db] = _db_dep(db)
+
+    chunk = _make_chunk()
+    from app.services.llm_gateway.protocol import LLMResponse
+    html_json = (
+        '{"answer_text": "<p>כלל 30 ימי חופשה שנתית.</p>",'
+        '"answer_blocks": [{"block_id": "b1", "text": "<p>פסקה ראשונה.</p>", "citation_ids": []}]}'
+    )
+    mock_llm_response = LLMResponse(
+        content=html_json, model="gpt-4o", provider="openrouter",
+        input_token_count=10, output_token_count=5,
+    )
+
+    with patch("app.api.chat.retrieve_chunks", new=AsyncMock(return_value=[chunk])), \
+         patch("app.api.chat.generate_with_gateway", new=AsyncMock(return_value=mock_llm_response)):
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(
+                    f"/chat/conversations/{conv.id}/messages",
+                    json={"content": "כמה ימי חופשה?"},
+                )
+            assert r.status_code == 200
+            data = r.json()
+            assert "<p>" not in data["message"]["content"]
+            blocks = data.get("answer_blocks", [])
+            for block in blocks:
+                assert "<p>" not in block["text"]
+        finally:
+            app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_script_tag_in_llm_answer_is_removed():
+    """<script> in LLM answer must be stripped entirely — security requirement."""
+    dep, user = _auth(["chat_user"])
+    conv = _make_conv(user_id=user.id)
+    iv = _make_index_version()
+    db = _make_db(conv, iv)
+    app.dependency_overrides[get_current_active_user] = dep
+    app.dependency_overrides[get_db] = _db_dep(db)
+
+    chunk = _make_chunk()
+    from app.services.llm_gateway.protocol import LLMResponse
+    xss_json = (
+        '{"answer_text": "<script>alert(1)</script>תשובה בטוחה",'
+        '"answer_blocks": []}'
+    )
+    mock_llm_response = LLMResponse(
+        content=xss_json, model="gpt-4o", provider="openrouter",
+        input_token_count=10, output_token_count=5,
+    )
+
+    with patch("app.api.chat.retrieve_chunks", new=AsyncMock(return_value=[chunk])), \
+         patch("app.api.chat.generate_with_gateway", new=AsyncMock(return_value=mock_llm_response)):
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                r = await client.post(
+                    f"/chat/conversations/{conv.id}/messages",
+                    json={"content": "מה זה?"},
+                )
+            assert r.status_code == 200
+            data = r.json()
+            assert "alert" not in data["message"]["content"]
+            assert "<script>" not in data["message"]["content"]
+            assert "תשובה בטוחה" in data["message"]["content"]
+        finally:
+            app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_db, None)
+
+
 # ── Model integrity ───────────────────────────────────────────────────────────
 
 def test_message_source_model_registered():
