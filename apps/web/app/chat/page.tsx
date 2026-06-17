@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   AnswerBlock,
   ApiError,
@@ -102,7 +102,6 @@ function formatDate(iso: string): string {
 
 export default function ChatPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [token, setToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
   const [userRoles, setUserRoles] = useState<string[]>([]);
@@ -155,7 +154,7 @@ export default function ChatPage() {
         else setError("לא ניתן לטעון פרטי משתמש.");
       });
     loadConversationList(t).then(() => {
-      const convIdFromUrl = searchParams.get("conversationId");
+      const convIdFromUrl = new URLSearchParams(window.location.search).get("conversationId");
       if (convIdFromUrl) {
         setConversationId(convIdFromUrl);
         setLoadingConv(true);
