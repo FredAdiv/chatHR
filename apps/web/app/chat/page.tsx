@@ -11,11 +11,13 @@ import { useRouter } from "next/navigation";
 import {
   AnswerBlock,
   ApiError,
+  ChunkViewResponse,
   CitationResponse,
   ContextType,
   ConversationResponse,
   MessageResponse,
   createConversation,
+  getChunk,
   getConversation,
   getMe,
   listConversations,
@@ -52,6 +54,13 @@ interface FeedbackState {
   comment: string;
   submitted: boolean;
   showComment: boolean;
+}
+
+interface SourcePopup {
+  chunkId: string;
+  data: ChunkViewResponse | null;
+  loading: boolean;
+  error: string | null;
 }
 
 function _unwrapDetail(raw: unknown): Record<string, unknown> | string | null {
@@ -116,6 +125,7 @@ export default function ChatPage() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingConv, setLoadingConv] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sourcePopup, setSourcePopup] = useState<SourcePopup | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   function handleAuthError() {
@@ -304,6 +314,25 @@ export default function ChatPage() {
     } catch {
       setError("לא ניתן לשמור משוב. אנא נסה שנית.");
     }
+  }
+
+  function openSourcePopup(chunkId: string) {
+    if (!token) return;
+    setSourcePopup({ chunkId, data: null, loading: true, error: null });
+    getChunk(token, chunkId)
+      .then((data) => setSourcePopup({ chunkId, data, loading: false, error: null }))
+      .catch((err) => {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          handleAuthError();
+          return;
+        }
+        setSourcePopup({
+          chunkId,
+          data: null,
+          loading: false,
+          error: err instanceof ApiError && err.status === 404 ? "המקור המבוקש לא נמצא." : "שגיאה בטעינת המקור.",
+        });
+      });
   }
 
   const hasRole = (role: string) => userRoles.includes(role);
@@ -619,12 +648,7 @@ export default function ChatPage() {
                                   {blockCitations.map((s) => (
                                     <button
                                       key={s.chunk_id}
-                                      onClick={() => {
-                                        const params = new URLSearchParams();
-                                        if (conversationId) params.set("conversationId", conversationId);
-                                        params.set("messageId", msg.id);
-                                        router.push(`/sources/${s.chunk_id}?${params.toString()}`);
-                                      }}
+                                      onClick={() => openSourcePopup(s.chunk_id)}
                                       title={s.source_title ?? s.knowledge_source_name}
                                       style={{
                                         background: "#dbeafe",
@@ -680,12 +704,7 @@ export default function ChatPage() {
                             )}
                             {src.chunk_id && (
                               <button
-                                onClick={() => {
-                                const params = new URLSearchParams();
-                                if (conversationId) params.set("conversationId", conversationId);
-                                params.set("messageId", msg.id);
-                                router.push(`/sources/${src.chunk_id}?${params.toString()}`);
-                              }}
+                                onClick={() => openSourcePopup(src.chunk_id)}
                                 style={{
                                   marginRight: "0.5rem",
                                   background: "transparent",
@@ -877,7 +896,113 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+      {sourcePopup && (
+        <SourceModal popup={sourcePopup} onClose={() => setSourcePopup(null)} />
+      )}
     </div>
+  );
+}
+
+const AUTHORITY_LABELS: Record<number, string> = {
+  1: "גבוהה ביותר", 2: "גבוהה", 3: "בינונית", 4: "נמוכה", 5: "נמוכה ביותר",
+};
+const DOC_TYPE_LABELS: Record<string, string> = {
+  takshir: 'תקשי"ר', pdf: "PDF", docx: "Word", html: "HTML", xlsx: "Excel", faq: "שאלות ותשובות",
+};
+
+function SourceModal({ popup, onClose }: { popup: SourcePopup; onClose: () => void }) {
+  const { data, loading, error } = popup;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+        zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "1rem",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff", borderRadius: "10px", width: "100%", maxWidth: "640px",
+          maxHeight: "85vh", overflowY: "auto", padding: "1.5rem",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.22)", position: "relative",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: "bold", color: "#1e3a5f" }}>
+            מקור מצוטט
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "none", fontSize: "1.4rem",
+              cursor: "pointer", color: "#6b7280", lineHeight: 1, padding: "0 0.25rem",
+            }}
+            aria-label="סגור"
+          >
+            ×
+          </button>
+        </div>
+
+        {loading && <div style={{ color: "#6b7280", fontSize: "0.95rem" }}>טוען מקור...</div>}
+
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "0.75rem 1rem", color: "#b91c1c", fontSize: "0.9rem" }}>
+            {error}
+          </div>
+        )}
+
+        {data && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.9rem" }}>
+              <tbody>
+                <ModalMetaRow label="מסמך" value={data.source_title ?? data.knowledge_source_name} />
+                <ModalMetaRow label="מקור" value={data.knowledge_source_name} />
+                {data.document_type && (
+                  <ModalMetaRow label="סוג מקור" value={DOC_TYPE_LABELS[data.document_type] ?? data.document_type} />
+                )}
+                <ModalMetaRow label="רמת סמכות" value={`${data.authority_level} — ${AUTHORITY_LABELS[data.authority_level] ?? ""}`} />
+                {data.section_title && <ModalMetaRow label="סעיף / פסקה" value={data.section_title} />}
+                {data.page_number != null && <ModalMetaRow label="עמוד" value={String(data.page_number)} />}
+              </tbody>
+            </table>
+
+            <hr style={{ border: "none", borderTop: "1px solid #e5e7eb", margin: "0.25rem 0" }} />
+
+            <div>
+              <div style={{ fontSize: "0.8rem", fontWeight: "bold", color: "#374151", marginBottom: "0.5rem" }}>
+                קטע מצוטט:
+              </div>
+              <div style={{
+                background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "6px",
+                padding: "0.75rem 1rem", fontSize: "0.92rem", lineHeight: 1.7,
+                whiteSpace: "pre-wrap", color: "#1e293b", direction: "rtl",
+              }}>
+                {data.excerpt}
+              </div>
+            </div>
+
+            <p style={{ fontSize: "0.78rem", color: "#9ca3af", margin: 0 }}>
+              {data.document_type === "faq"
+                ? "תשובה זו מבוססת על FAQ מאושר. אינה מחליפה את הוראות התקשי\"ר או הסכמי שכר."
+                : "קטע זה נלקח ממסמך רשמי שאונדקס במערכת."}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModalMetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <tr>
+      <td style={{ padding: "0.3rem 1rem 0.3rem 0", fontWeight: "bold", color: "#374151", whiteSpace: "nowrap", verticalAlign: "top", width: "130px" }}>
+        {label}:
+      </td>
+      <td style={{ padding: "0.3rem 0", color: "#1f2937" }}>{value}</td>
+    </tr>
   );
 }
 
