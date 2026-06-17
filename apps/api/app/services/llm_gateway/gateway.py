@@ -60,8 +60,11 @@ async def generate_with_gateway(
     resolved_model = model or settings.default_chat_model
 
     # ── Privacy guard (MUST run before provider) ──────────────────────────────
+    # Name-context detection (full_name_context) runs only on user messages.
+    # System and assistant messages contain document chunks / regulation text
+    # that legitimately match "employment-context + Hebrew-word-pair" patterns.
     for msg in messages:
-        result = check_text(msg.content)
+        result = check_text(msg.content, check_name_context=(msg.role == "user"))
         if not result.allowed:
             await _write_usage_log(
                 db,

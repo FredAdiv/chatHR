@@ -8,7 +8,7 @@ from __future__ import annotations
 from app.services.llm_gateway.protocol import LLMMessage
 from app.services.retrieval.retriever import RetrievedChunk
 
-_SYSTEM_TEMPLATE = (
+_SYSTEM_INSTRUCTIONS = (
     "אתה עוזר מקצועי לעובדי HR בשירות המדינה הישראלי. "
     "ענה **רק** על סמך המקורות הרשמיים שסופקו להלן — אין להשתמש בידע כללי, באינטרנט או במקורות חיצוניים. "
     "אם המקורות אינם מספיקים לתשובה ברורה, ציין: 'לא נמצא מקור רשמי מספיק ברור'. "
@@ -41,9 +41,12 @@ def build_chat_prompt(
     """Assemble LLM messages for a RAG chat answer.
 
     - Never persisted — callers must not store the return value.
+    - Document chunks are placed in the system message so that the privacy guard's
+      full-name-in-HR-context check (which targets user input) does not trigger
+      false positives on regulation text like "עובד הנותן שירות".
+    - The user message contains only the user's question — no chunk text.
     - Includes chunk_text and citation labels, NOT chunk IDs as raw UUIDs in human-visible text.
     - Instruction is strict: answer only from provided sources.
-    - context_type is included for debugging/routing but NOT as user-visible text that leaks context.
     """
     source_blocks: list[str] = []
     for i, chunk in enumerate(retrieval_results, start=1):
@@ -61,11 +64,11 @@ def build_chat_prompt(
         source_blocks.append(block)
 
     sources_text = "\n\n".join(source_blocks)
-    user_content = f"שאלה: {user_question}\n\nמקורות רשמיים:\n{sources_text}"
+    system_content = f"{_SYSTEM_INSTRUCTIONS}\n\nמקורות רשמיים:\n{sources_text}"
 
     return [
-        LLMMessage(role="system", content=_SYSTEM_TEMPLATE),
-        LLMMessage(role="user", content=user_content),
+        LLMMessage(role="system", content=system_content),
+        LLMMessage(role="user", content=f"שאלה: {user_question}"),
     ]
 
 

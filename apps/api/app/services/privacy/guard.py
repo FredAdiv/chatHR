@@ -155,7 +155,7 @@ def _build_redacted(text: str, replacements: list[tuple[int, int, str]]) -> str:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def check_text(text: str) -> PrivacyCheckResult:
+def check_text(text: str, check_name_context: bool = True) -> PrivacyCheckResult:
     """
     Inspect text for PII and sensitive content before any external model call.
 
@@ -163,6 +163,10 @@ def check_text(text: str) -> PrivacyCheckResult:
       - allowed=False if any high-severity finding exists
       - redacted_text replacing all matched spans with [REDACTED:type] labels
       - findings list (matched_text populated internally; not for public exposure)
+
+    check_name_context: enable full-name-in-HR-context detection (high severity).
+    Set False for system prompts and retrieved document chunks — those contain
+    regulation text like "עובד הנותן שירות" that triggers false positives.
 
     Does not call external services. All detection is deterministic.
     """
@@ -198,11 +202,14 @@ def check_text(text: str) -> PrivacyCheckResult:
         findings.append(Finding("sensitive_context", "medium", m.start(), m.end(), m.group()))
         replacements.append((m.start(), m.end(), "[REDACTED:sensitive_context]"))
 
-    # Full name + HR employment context → high severity (blocks)
-    for f in _detect_full_name_with_hr_context(text):
-        findings.append(f)
-        if f.span_start is not None and f.span_end is not None:
-            replacements.append((f.span_start, f.span_end, "[REDACTED:full_name]"))
+    # Full name + HR employment context → high severity (blocks).
+    # Skipped for system/context messages: regulation text patterns (e.g. "עובד הנותן שירות")
+    # produce false positives that would block legitimate document-grounded LLM calls.
+    if check_name_context:
+        for f in _detect_full_name_with_hr_context(text):
+            findings.append(f)
+            if f.span_start is not None and f.span_end is not None:
+                replacements.append((f.span_start, f.span_end, "[REDACTED:full_name]"))
 
     has_high = any(f.severity == "high" for f in findings)
     redacted = _build_redacted(text, replacements) if replacements else None
